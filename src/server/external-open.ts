@@ -33,11 +33,11 @@ export function openExternal(localPath: string, action: OpenExternalAction) {
       return
     }
     if (action === "open_editor") {
-      if (hasCommand("code")) {
-        spawnDetached("code", [resolvedPath])
+      if (hasCommand("cursor")) {
+        spawnDetached("cursor", [resolvedPath])
         return
       }
-      for (const appName of ["Visual Studio Code", "Cursor", "Windsurf"]) {
+      for (const appName of ["Cursor", "Visual Studio Code", "Windsurf"]) {
         if (!canOpenMacApp(appName)) continue
         spawnDetached("open", ["-a", appName, resolvedPath])
         return
@@ -61,6 +61,10 @@ export function openExternal(localPath: string, action: OpenExternalAction) {
       return
     }
     if (action === "open_editor") {
+      if (hasCommand("cursor")) {
+        spawnDetached("cursor", [resolvedPath])
+        return
+      }
       if (hasCommand("code")) {
         spawnDetached("code", [resolvedPath])
         return
@@ -87,6 +91,10 @@ export function openExternal(localPath: string, action: OpenExternalAction) {
       return
     }
     spawnDetached("xdg-open", [resolvedPath])
+    return
+  }
+  if (hasCommand("cursor")) {
+    spawnDetached("cursor", [resolvedPath])
     return
   }
   if (hasCommand("code")) {

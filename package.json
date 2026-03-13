@@ -1,11 +1,19 @@
 {
-  "name": "kanna",
-  "private": true,
+  "name": "kanna-code",
   "type": "module",
   "version": "0.1.0",
   "description": "Local-only project chat UI",
   "bin": {
-    "kanna": "./bin/workbench"
+    "kanna": "./bin/kanna"
+  },
+  "files": [
+    "bin/",
+    "src/server/",
+    "src/shared/",
+    "dist/client/"
+  ],
+  "engines": {
+    "bun": ">=1.0.0"
   },
   "scripts": {
     "build": "vite build",
@@ -13,15 +21,23 @@
     "dev": "bun run ./scripts/dev.ts",
     "dev:client": "vite --host 0.0.0.0 --port 5174",
     "dev:server": "bun run ./src/server/cli.ts --no-open --port 3211",
-    "start": "bun run ./src/server/cli.ts"
+    "start": "bun run ./src/server/cli.ts",
+    "prepublishOnly": "vite build"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.39",
+    "@anthropic-ai/claude-agent-sdk": "^0.2.39"
+  },
+  "devDependencies": {
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-popover": "^1.1.15",
     "@radix-ui/react-tooltip": "^1.2.8",
     "@tailwindcss/postcss": "^4.1.18",
     "@tailwindcss/typography": "^0.5.19",
+    "@types/bun": "latest",
+    "@types/node": "^24.10.1",
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "5.1.1",
     "autoprefixer": "^10.4.23",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -32,16 +48,9 @@
     "react-router-dom": "^7.12.0",
     "remark-gfm": "^4.0.1",
     "tailwind-merge": "^3.4.0",
-    "zustand": "^5.0.10"
-  },
-  "devDependencies": {
-    "@types/bun": "latest",
-    "@types/node": "^24.10.1",
-    "@types/react": "19.2.7",
-    "@types/react-dom": "19.2.3",
-    "@vitejs/plugin-react": "5.1.1",
     "tailwindcss": "^4.1.18",
     "typescript": "5.8.3",
-    "vite": "^6.0.0"
+    "vite": "^6.0.0",
+    "zustand": "^5.0.10"
   }
 }

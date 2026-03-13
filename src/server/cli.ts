@@ -1,12 +1,27 @@
 import process from "node:process"
 import { spawn, spawnSync } from "node:child_process"
-import { getDataDirDisplay, LOG_PREFIX } from "../shared/branding"
+import { APP_NAME, CLI_COMMAND, getDataDirDisplay, LOG_PREFIX, SDK_CLIENT_APP } from "../shared/branding"
 import { PROD_SERVER_PORT } from "../shared/ports"
 import { startKannaServer } from "./server"
+
+const VERSION = SDK_CLIENT_APP.split("/")[1] ?? "0.0.0"
 
 interface CliOptions {
   port: number
   openBrowser: boolean
+}
+
+function printHelp() {
+  console.log(`${APP_NAME} — local-only project chat UI
+
+Usage:
+  ${CLI_COMMAND} [options]
+
+Options:
+  --port <number>  Port to listen on (default: ${PROD_SERVER_PORT})
+  --no-open        Don't open browser automatically
+  --version        Print version and exit
+  --help           Show this help message`)
 }
 
 function parseArgs(argv: string[]): CliOptions {
@@ -15,6 +30,14 @@ function parseArgs(argv: string[]): CliOptions {
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
+    if (arg === "--version" || arg === "-v") {
+      console.log(VERSION)
+      process.exit(0)
+    }
+    if (arg === "--help" || arg === "-h") {
+      printHelp()
+      process.exit(0)
+    }
     if (arg === "--port") {
       const next = argv[index + 1]
       if (!next) throw new Error("Missing value for --port")

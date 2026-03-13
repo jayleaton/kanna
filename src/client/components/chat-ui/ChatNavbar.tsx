@@ -90,7 +90,7 @@ export function ChatNavbar({
                 variant="ghost"
                 size="icon"
                 onClick={() => onOpenExternal("open_editor")}
-                title="Open in Editor"
+                title="Open in Cursor"
                 className="border border-border/0"
               >
                 <Code className="h-4.5 w-4.5" />
