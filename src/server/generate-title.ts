@@ -3,11 +3,12 @@ import { query } from "@anthropic-ai/claude-agent-sdk"
 export async function generateTitleForChat(messageContent: string): Promise<string | null> {
   try {
     const q = query({
-      prompt: `Generate a short, descriptive title (under 60 chars) for a conversation that starts with this message. Return JSON matching the schema.\n\n${messageContent}`,
+      prompt: `Generate a short, descriptive title (under 30 chars) for a conversation that starts with this message. Return JSON matching the schema.\n\n${messageContent}`,
       options: {
         model: "haiku",
         tools: [],
         systemPrompt: "",
+        effort: "low",
         permissionMode: "bypassPermissions",
         outputFormat: {
           type: "json_schema",
