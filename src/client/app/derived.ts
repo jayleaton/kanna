@@ -1,14 +1,14 @@
-import type { Message } from "../lib/parseTranscript"
+import type { HydratedTranscriptMessage } from "../../shared/types"
 import type { ProcessedToolCall } from "../components/messages/types"
 
 const SPECIAL_TOOL_NAMES = ["AskUserQuestion", "ExitPlanMode", "TodoWrite"] as const
 const RESOLVED_TOOL_NAMES = new Set<string>(["TodoWrite"])
 
-function findLatestUnresolvedToolId(messages: Message[], toolName: string): string | null {
+function findLatestUnresolvedToolId(messages: HydratedTranscriptMessage[], toolName: string): string | null {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index]
-    if (message.processed?.kind !== "tool") continue
-    const toolCall = message.processed as ProcessedToolCall
+    if (message.kind !== "tool") continue
+    const toolCall = message as ProcessedToolCall
     if (toolCall.toolName === toolName && !toolCall.result) {
       return toolCall.id
     }
@@ -16,11 +16,11 @@ function findLatestUnresolvedToolId(messages: Message[], toolName: string): stri
   return null
 }
 
-function findLatestToolId(messages: Message[], toolName: string): string | null {
+function findLatestToolId(messages: HydratedTranscriptMessage[], toolName: string): string | null {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index]
-    if (message.processed?.kind !== "tool") continue
-    const toolCall = message.processed as ProcessedToolCall
+    if (message.kind !== "tool") continue
+    const toolCall = message as ProcessedToolCall
     if (toolCall.toolName === toolName) {
       return toolCall.id
     }
@@ -28,7 +28,7 @@ function findLatestToolId(messages: Message[], toolName: string): string | null 
   return null
 }
 
-export function getLatestToolIds(messages: Message[]) {
+export function getLatestToolIds(messages: HydratedTranscriptMessage[]) {
   const ids: Record<string, string | null> = {}
   for (const toolName of SPECIAL_TOOL_NAMES) {
     ids[toolName] = RESOLVED_TOOL_NAMES.has(toolName)

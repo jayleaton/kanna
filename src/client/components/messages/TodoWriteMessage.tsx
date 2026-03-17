@@ -2,12 +2,6 @@ import { Check, Circle, ListChecks, Loader2 } from "lucide-react"
 import { cn } from "../../lib/utils"
 import type { ProcessedToolCall } from "./types"
 
-interface TodoItem {
-  content: string
-  status: "pending" | "in_progress" | "completed"
-  activeForm: string
-}
-
 const STATUS_CONFIG = {
   completed:   { Icon: Check,   iconClass: "text-emerald-500",             textClass: "text-muted-foreground" },
   in_progress: { Icon: Loader2, iconClass: "text-foreground animate-spin", textClass: "text-foreground font-medium" },
@@ -15,11 +9,11 @@ const STATUS_CONFIG = {
 } as const
 
 interface Props {
-  message: ProcessedToolCall
+  message: Extract<ProcessedToolCall, { toolKind: "todo_write" }>
 }
 
 export function TodoWriteMessage({ message }: Props) {
-  const todos = (message.input.todos as TodoItem[] | undefined) ?? []
+  const todos = message.input.todos
 
   if (!todos.length) return null
 

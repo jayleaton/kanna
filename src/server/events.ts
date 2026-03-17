@@ -1,4 +1,4 @@
-import type { ProjectSummary, TranscriptEntry } from "../shared/types"
+import type { AgentProvider, ProjectSummary, TranscriptEntry } from "../shared/types"
 
 export interface ProjectRecord extends ProjectSummary {
   deletedAt?: number
@@ -11,8 +11,9 @@ export interface ChatRecord {
   createdAt: number
   updatedAt: number
   deletedAt?: number
+  provider: AgentProvider | null
   planMode: boolean
-  resumeSessionId: string | null
+  sessionToken: string | null
   lastMessageAt?: number
   lastTurnOutcome: "success" | "failed" | "cancelled" | null
 }
@@ -25,7 +26,7 @@ export interface StoreState {
 }
 
 export interface SnapshotFile {
-  v: 1
+  v: 2
   generatedAt: number
   projects: ProjectRecord[]
   chats: ChatRecord[]
@@ -33,14 +34,14 @@ export interface SnapshotFile {
 }
 
 export type ProjectEvent = {
-  v: 1
+  v: 2
   type: "project_opened"
   timestamp: number
   projectId: string
   localPath: string
   title: string
 } | {
-  v: 1
+  v: 2
   type: "project_removed"
   timestamp: number
   projectId: string
@@ -48,7 +49,7 @@ export type ProjectEvent = {
 
 export type ChatEvent =
   | {
-      v: 1
+      v: 2
       type: "chat_created"
       timestamp: number
       chatId: string
@@ -56,20 +57,27 @@ export type ChatEvent =
       title: string
     }
   | {
-      v: 1
+      v: 2
       type: "chat_renamed"
       timestamp: number
       chatId: string
       title: string
     }
   | {
-      v: 1
+      v: 2
       type: "chat_deleted"
       timestamp: number
       chatId: string
     }
   | {
-      v: 1
+      v: 2
+      type: "chat_provider_set"
+      timestamp: number
+      chatId: string
+      provider: AgentProvider
+    }
+  | {
+      v: 2
       type: "chat_plan_mode_set"
       timestamp: number
       chatId: string
@@ -77,7 +85,7 @@ export type ChatEvent =
     }
 
 export type MessageEvent = {
-  v: 1
+  v: 2
   type: "message_appended"
   timestamp: number
   chatId: string
@@ -86,36 +94,36 @@ export type MessageEvent = {
 
 export type TurnEvent =
   | {
-      v: 1
+      v: 2
       type: "turn_started"
       timestamp: number
       chatId: string
     }
   | {
-      v: 1
+      v: 2
       type: "turn_finished"
       timestamp: number
       chatId: string
     }
   | {
-      v: 1
+      v: 2
       type: "turn_failed"
       timestamp: number
       chatId: string
       error: string
     }
   | {
-      v: 1
+      v: 2
       type: "turn_cancelled"
       timestamp: number
       chatId: string
     }
   | {
-      v: 1
-      type: "resume_session_set"
+      v: 2
+      type: "session_token_set"
       timestamp: number
       chatId: string
-      sessionId: string | null
+      sessionToken: string | null
     }
 
 export type StoreEvent = ProjectEvent | ChatEvent | MessageEvent | TurnEvent

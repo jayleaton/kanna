@@ -4,7 +4,7 @@ import { ToolCallMessage } from "./ToolCallMessage"
 import { MetaRow, MetaLabel } from "./shared"
 import { AnimatedShinyText } from "../ui/animated-shiny-text"
 import type { ProcessedToolCall } from "./types"
-import type { Message } from "../../lib/parseTranscript"
+import type { HydratedTranscriptMessage } from "../../../shared/types"
 
 interface ToolCategory {
   key: string
@@ -13,39 +13,31 @@ interface ToolCategory {
 }
 
 const TOOL_CATEGORIES: Record<string, ToolCategory> = {
-  Read: { key: "read", singular: "read", plural: "reads" },
-  Edit: { key: "edit", singular: "edit", plural: "edits" },
-  Write: { key: "write", singular: "write", plural: "writes" },
-  Bash: { key: "bash", singular: "command", plural: "commands" },
-  Grep: { key: "grep", singular: "search", plural: "searches" },
-  Glob: { key: "glob", singular: "glob", plural: "globs" },
-  Task: { key: "task", singular: "agent", plural: "agents" },
-  WebFetch: { key: "webfetch", singular: "fetch", plural: "fetches" },
-  WebSearch: { key: "websearch", singular: "web search", plural: "web searches" },
-  Skill: { key: "skill", singular: "skill", plural: "skills" },
-  TodoWrite: { key: "todo", singular: "todo update", plural: "todo updates" },
+  read_file: { key: "read", singular: "read", plural: "reads" },
+  edit_file: { key: "edit", singular: "edit", plural: "edits" },
+  write_file: { key: "write", singular: "write", plural: "writes" },
+  bash: { key: "bash", singular: "command", plural: "commands" },
+  grep: { key: "grep", singular: "search", plural: "searches" },
+  glob: { key: "glob", singular: "glob", plural: "globs" },
+  subagent_task: { key: "task", singular: "agent", plural: "agents" },
+  web_search: { key: "websearch", singular: "web search", plural: "web searches" },
+  skill: { key: "skill", singular: "skill", plural: "skills" },
+  todo_write: { key: "todo", singular: "todo update", plural: "todo updates" },
 }
 
-const DB_QUERY_CATEGORY: ToolCategory = { key: "dbquery", singular: "query", plural: "queries" }
 const OTHER_CATEGORY: ToolCategory = { key: "other", singular: "tool call", plural: "tool calls" }
 
-function getToolCategory(toolName: string): ToolCategory {
-  if (TOOL_CATEGORIES[toolName]) {
-    return TOOL_CATEGORIES[toolName]
-  }
-  if (/^mcp__db__.+_query$/.test(toolName)) {
-    return DB_QUERY_CATEGORY
-  }
-  return OTHER_CATEGORY
+function getToolCategory(toolKind: string): ToolCategory {
+  return TOOL_CATEGORIES[toolKind] ?? OTHER_CATEGORY
 }
 
-function getToolGroupLabel(messages: Message[]): string {
+function getToolGroupLabel(messages: HydratedTranscriptMessage[]): string {
   const counts = new Map<string, { category: ToolCategory; count: number }>()
   const order: string[] = []
 
   for (const msg of messages) {
-    const toolName = (msg.processed as ProcessedToolCall).toolName
-    const category = getToolCategory(toolName)
+    const toolKind = (msg as ProcessedToolCall).toolKind
+    const category = getToolCategory(toolKind)
 
     const existing = counts.get(category.key)
     if (existing) {
@@ -64,20 +56,19 @@ function getToolGroupLabel(messages: Message[]): string {
 }
 
 interface Props {
-  messages: Message[]
+  messages: HydratedTranscriptMessage[]
   isLoading: boolean
-  outputsUrl?: string | null
   localPath?: string | null
 }
 
-export function CollapsedToolGroup({ messages, isLoading, outputsUrl, localPath }: Props) {
+export function CollapsedToolGroup({ messages, isLoading, localPath }: Props) {
   const [expanded, setExpanded] = useState(false)
 
   const label = useMemo(() => getToolGroupLabel(messages), [messages])
 
   // Check if any tool in the group is still in progress
   const anyInProgress = messages.some(msg => {
-    const processed = msg.processed as ProcessedToolCall
+    const processed = msg as ProcessedToolCall
     return processed.result === undefined
   })
 
@@ -106,9 +97,8 @@ export function CollapsedToolGroup({ messages, isLoading, outputsUrl, localPath 
             {messages.map(msg => (
               <ToolCallMessage
                 key={msg.id}
-                message={msg.processed as ProcessedToolCall}
+                message={msg as ProcessedToolCall}
                 isLoading={isLoading}
-                outputsUrl={outputsUrl}
                 localPath={localPath}
               />
             ))}

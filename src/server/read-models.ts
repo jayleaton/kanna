@@ -10,6 +10,7 @@ import type {
 import type { ChatRecord, StoreState } from "./events"
 import { cloneTranscriptEntries } from "./events"
 import { resolveLocalPath } from "./paths"
+import { SERVER_PROVIDERS } from "./provider-catalog"
 
 export function deriveStatus(chat: ChatRecord, activeStatus?: KannaStatus): KannaStatus {
   if (activeStatus) return activeStatus
@@ -36,6 +37,7 @@ export function deriveSidebarData(
         title: chat.title,
         status: deriveStatus(chat, activeStatuses.get(chat.id)),
         localPath: project.localPath,
+        provider: chat.provider,
         lastMessageAt: chat.lastMessageAt,
         hasAutomation: false,
       }))
@@ -109,12 +111,14 @@ export function deriveChatSnapshot(
     localPath: project.localPath,
     title: chat.title,
     status: deriveStatus(chat, activeStatuses.get(chat.id)),
+    provider: chat.provider,
     planMode: chat.planMode,
-    resumeSessionId: chat.resumeSessionId,
+    sessionToken: chat.sessionToken,
   }
 
   return {
     runtime,
     messages: cloneTranscriptEntries(state.messagesByChatId.get(chat.id) ?? []),
+    availableProviders: [...SERVER_PROVIDERS],
   }
 }

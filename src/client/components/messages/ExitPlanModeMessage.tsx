@@ -8,7 +8,7 @@ import { markdownWithHeadingsComponents } from "./shared"
 import { cn } from "../../lib/utils"
 
 interface Props {
-  message: ProcessedToolCall
+  message: Extract<ProcessedToolCall, { toolKind: "exit_plan_mode" }>
   onConfirm: (toolUseId: string, confirmed: boolean, clearContext?: boolean, message?: string) => void
   isLatest: boolean
 }
@@ -20,7 +20,7 @@ export function ExitPlanModeMessage({ message, onConfirm }: Props) {
   const [showEditInput, setShowEditInput] = useState(false)
   const [editMessage, setEditMessage] = useState("")
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const input = message.input as { plan?: string; summary?: string } | undefined
+  const input = message.input
 
   useEffect(() => {
     if (showEditInput && textareaRef.current) {
@@ -35,14 +35,7 @@ export function ExitPlanModeMessage({ message, onConfirm }: Props) {
     setTimeout(() => setCopied(false), 2000)
   }
 
-  const result = (() => {
-    if (!isComplete) return null
-    try {
-      return JSON.parse(message.result || "{}")
-    } catch {
-      return {}
-    }
-  })()
+  const result = isComplete ? message.result : null
 
   return (
     <div className="flex flex-col gap-3">

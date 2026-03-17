@@ -2,7 +2,7 @@ import { appendFile, mkdir } from "node:fs/promises"
 import { homedir } from "node:os"
 import path from "node:path"
 import { getDataDir, LOG_PREFIX } from "../shared/branding"
-import type { TranscriptEntry } from "../shared/types"
+import type { AgentProvider, TranscriptEntry } from "../shared/types"
 import { STORE_VERSION } from "../shared/types"
 import {
   type ChatEvent,
@@ -29,6 +29,7 @@ export class EventStore {
   readonly dataDir = DATA_DIR
   readonly state: StoreState = createEmptyState()
   private writeChain = Promise.resolve()
+  private storageReset = false
 
   async initialize() {
     await mkdir(DATA_DIR, { recursive: true })
@@ -50,14 +51,31 @@ export class EventStore {
     }
   }
 
+  private async clearStorage() {
+    if (this.storageReset) return
+    this.storageReset = true
+    this.resetState()
+    await Promise.all([
+      Bun.write(SNAPSHOT_PATH, ""),
+      Bun.write(PROJECTS_LOG, ""),
+      Bun.write(CHATS_LOG, ""),
+      Bun.write(MESSAGES_LOG, ""),
+      Bun.write(TURNS_LOG, ""),
+    ])
+  }
+
   private async loadSnapshot() {
     const file = Bun.file(SNAPSHOT_PATH)
     if (!(await file.exists())) return
 
     try {
-      const parsed = (await file.json()) as SnapshotFile
+      const text = await file.text()
+      if (!text.trim()) return
+      const parsed = JSON.parse(text) as SnapshotFile
       if (parsed.v !== STORE_VERSION) {
-        throw new Error(`Unsupported snapshot version ${String(parsed.v)}`)
+        console.warn(`${LOG_PREFIX} Resetting local chat history for store version ${STORE_VERSION}`)
+        await this.clearStorage()
+        return
       }
       for (const project of parsed.projects) {
         this.state.projectsById.set(project.id, { ...project })
@@ -70,8 +88,8 @@ export class EventStore {
         this.state.messagesByChatId.set(messageSet.chatId, cloneTranscriptEntries(messageSet.entries))
       }
     } catch (error) {
-      console.warn(`${LOG_PREFIX} Failed to load snapshot, rebuilding from logs:`, error)
-      this.resetState()
+      console.warn(`${LOG_PREFIX} Failed to load snapshot, resetting local history:`, error)
+      await this.clearStorage()
     }
   }
 
@@ -83,9 +101,13 @@ export class EventStore {
   }
 
   private async replayLogs() {
+    if (this.storageReset) return
     await this.replayLog<ProjectEvent>(PROJECTS_LOG)
+    if (this.storageReset) return
     await this.replayLog<ChatEvent>(CHATS_LOG)
+    if (this.storageReset) return
     await this.replayLog<MessageEvent>(MESSAGES_LOG)
+    if (this.storageReset) return
     await this.replayLog<TurnEvent>(TURNS_LOG)
   }
 
@@ -108,14 +130,21 @@ export class EventStore {
       const line = lines[index].trim()
       if (!line) continue
       try {
-        const event = JSON.parse(line) as TEvent
-        this.applyEvent(event)
+        const event = JSON.parse(line) as Partial<StoreEvent>
+        if (event.v !== STORE_VERSION) {
+          console.warn(`${LOG_PREFIX} Resetting local history from incompatible event log`)
+          await this.clearStorage()
+          return
+        }
+        this.applyEvent(event as StoreEvent)
       } catch (error) {
         if (index === lastNonEmpty) {
           console.warn(`${LOG_PREFIX} Ignoring corrupt trailing line in ${path.basename(filePath)}`)
           return
         }
-        throw error
+        console.warn(`${LOG_PREFIX} Failed to replay ${path.basename(filePath)}, resetting local history:`, error)
+        await this.clearStorage()
+        return
       }
     }
   }
@@ -150,8 +179,9 @@ export class EventStore {
           title: event.title,
           createdAt: event.timestamp,
           updatedAt: event.timestamp,
+          provider: null,
           planMode: false,
-          resumeSessionId: null,
+          sessionToken: null,
           lastTurnOutcome: null,
         }
         this.state.chatsById.set(chat.id, chat)
@@ -171,6 +201,13 @@ export class EventStore {
         chat.updatedAt = event.timestamp
         break
       }
+      case "chat_provider_set": {
+        const chat = this.state.chatsById.get(event.chatId)
+        if (!chat) break
+        chat.provider = event.provider
+        chat.updatedAt = event.timestamp
+        break
+      }
       case "chat_plan_mode_set": {
         const chat = this.state.chatsById.get(event.chatId)
         if (!chat) break
@@ -181,15 +218,8 @@ export class EventStore {
       case "message_appended": {
         const chat = this.state.chatsById.get(event.chatId)
         if (chat) {
-          // Only update lastMessageAt for user-sent messages so the sidebar
-          // sorts by "last sent" rather than "last received".
-          try {
-            const parsed = JSON.parse(event.entry.message)
-            if (parsed.type === "user_prompt") {
-              chat.lastMessageAt = event.entry.createdAt
-            }
-          } catch {
-            // non-JSON entry, skip
+          if (event.entry.kind === "user_prompt") {
+            chat.lastMessageAt = event.entry.createdAt
           }
           chat.updatedAt = Math.max(chat.updatedAt, event.entry.createdAt)
         }
@@ -225,10 +255,10 @@ export class EventStore {
         chat.lastTurnOutcome = "cancelled"
         break
       }
-      case "resume_session_set": {
+      case "session_token_set": {
         const chat = this.state.chatsById.get(event.chatId)
         if (!chat) break
-        chat.resumeSessionId = event.sessionId
+        chat.sessionToken = event.sessionToken
         chat.updatedAt = event.timestamp
         break
       }
@@ -326,6 +356,19 @@ export class EventStore {
     await this.append(CHATS_LOG, event)
   }
 
+  async setChatProvider(chatId: string, provider: AgentProvider) {
+    const chat = this.requireChat(chatId)
+    if (chat.provider === provider) return
+    const event: ChatEvent = {
+      v: STORE_VERSION,
+      type: "chat_provider_set",
+      timestamp: Date.now(),
+      chatId,
+      provider,
+    }
+    await this.append(CHATS_LOG, event)
+  }
+
   async setPlanMode(chatId: string, planMode: boolean) {
     const chat = this.requireChat(chatId)
     if (chat.planMode === planMode) return
@@ -396,15 +439,15 @@ export class EventStore {
     await this.append(TURNS_LOG, event)
   }
 
-  async setResumeSession(chatId: string, sessionId: string | null) {
+  async setSessionToken(chatId: string, sessionToken: string | null) {
     const chat = this.requireChat(chatId)
-    if (chat.resumeSessionId === sessionId) return
+    if (chat.sessionToken === sessionToken) return
     const event: TurnEvent = {
       v: STORE_VERSION,
-      type: "resume_session_set",
+      type: "session_token_set",
       timestamp: Date.now(),
       chatId,
-      sessionId,
+      sessionToken,
     }
     await this.append(TURNS_LOG, event)
   }
@@ -460,19 +503,23 @@ export class EventStore {
         entries: cloneTranscriptEntries(entries),
       })),
     }
+
     await Bun.write(SNAPSHOT_PATH, JSON.stringify(snapshot, null, 2))
-    await Bun.write(PROJECTS_LOG, "")
-    await Bun.write(CHATS_LOG, "")
-    await Bun.write(MESSAGES_LOG, "")
-    await Bun.write(TURNS_LOG, "")
+    await Promise.all([
+      Bun.write(PROJECTS_LOG, ""),
+      Bun.write(CHATS_LOG, ""),
+      Bun.write(MESSAGES_LOG, ""),
+      Bun.write(TURNS_LOG, ""),
+    ])
   }
 
   private async shouldCompact() {
-    const files = [PROJECTS_LOG, CHATS_LOG, MESSAGES_LOG, TURNS_LOG]
-    let total = 0
-    for (const filePath of files) {
-      total += Bun.file(filePath).size
-    }
-    return total >= COMPACTION_THRESHOLD_BYTES
+    const sizes = await Promise.all([
+      Bun.file(PROJECTS_LOG).size,
+      Bun.file(CHATS_LOG).size,
+      Bun.file(MESSAGES_LOG).size,
+      Bun.file(TURNS_LOG).size,
+    ])
+    return sizes.reduce((total, size) => total + size, 0) >= COMPACTION_THRESHOLD_BYTES
   }
 }

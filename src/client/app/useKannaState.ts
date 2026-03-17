@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react"
 import { useNavigate } from "react-router-dom"
 import { APP_NAME } from "../../shared/branding"
+import { PROVIDERS, type AgentProvider, type ModelOptions, type ProviderCatalogEntry } from "../../shared/types"
 import { useChatPreferencesStore } from "../stores/chatPreferencesStore"
 import type { ChatSnapshot, LocalProjectsSnapshot, SidebarChatRow, SidebarData } from "../../shared/types"
 import type { AskUserQuestionItem } from "../components/messages/types"
@@ -47,6 +48,7 @@ export interface KannaState {
   messages: ReturnType<typeof processTranscriptMessages>
   latestToolIds: ReturnType<typeof getLatestToolIds>
   runtime: ChatSnapshot["runtime"] | null
+  availableProviders: ProviderCatalogEntry[]
   isProcessing: boolean
   canCancel: boolean
   transcriptPaddingBottom: number
@@ -62,7 +64,7 @@ export interface KannaState {
   handleCreateChat: (projectId: string) => Promise<void>
   handleOpenLocalProject: (localPath: string) => Promise<void>
   handleCreateProject: (project: { mode: "new" | "existing"; localPath: string; title: string }) => Promise<void>
-  handleSend: (content: string, options?: { model?: string; effort?: string; planMode?: boolean }) => Promise<void>
+  handleSend: (content: string, options?: { provider?: AgentProvider; model?: string; modelOptions?: ModelOptions; planMode?: boolean }) => Promise<void>
   handleCancel: () => Promise<void>
   handleDeleteChat: (chat: SidebarChatRow) => Promise<void>
   handleRemoveProject: (projectId: string) => Promise<void>
@@ -185,6 +187,7 @@ export function useKannaState(activeChatId: string | null): KannaState {
   const messages = useMemo(() => processTranscriptMessages(chatSnapshot?.messages ?? []), [chatSnapshot?.messages])
   const latestToolIds = useMemo(() => getLatestToolIds(messages), [messages])
   const runtime = chatSnapshot?.runtime ?? null
+  const availableProviders = chatSnapshot?.availableProviders ?? PROVIDERS
   const isProcessing = isProcessingStatus(runtime?.status)
   const canCancel = canCancelStatus(runtime?.status)
   const transcriptPaddingBottom = inputHeight + 48
@@ -273,7 +276,10 @@ export function useKannaState(activeChatId: string | null): KannaState {
     }
   }
 
-  async function handleSend(content: string, options?: { model?: string; effort?: string; planMode?: boolean }) {
+  async function handleSend(
+    content: string,
+    options?: { provider?: AgentProvider; model?: string; modelOptions?: ModelOptions; planMode?: boolean }
+  ) {
     try {
       let projectId = selectedProjectId ?? sidebarData.projectGroups[0]?.groupKey ?? null
       if (!activeChatId && !projectId && fallbackLocalProjectPath) {
@@ -293,9 +299,10 @@ export function useKannaState(activeChatId: string | null): KannaState {
         type: "chat.send",
         chatId: activeChatId ?? undefined,
         projectId: activeChatId ? undefined : projectId ?? undefined,
+        provider: options?.provider,
         content,
         model: options?.model,
-        effort: options?.effort,
+        modelOptions: options?.modelOptions,
         planMode: options?.planMode,
       })
 
@@ -446,6 +453,7 @@ export function useKannaState(activeChatId: string | null): KannaState {
     messages,
     latestToolIds,
     runtime,
+    availableProviders,
     isProcessing,
     canCancel,
     transcriptPaddingBottom,

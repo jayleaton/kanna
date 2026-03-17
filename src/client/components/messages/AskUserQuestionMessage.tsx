@@ -5,7 +5,7 @@ import { Button } from "../ui/button"
 import { cn } from "../../lib/utils"
 
 interface Props {
-  message: ProcessedToolCall
+  message: Extract<ProcessedToolCall, { toolKind: "ask_user_question" }>
   onSubmit: (toolUseId: string, questions: AskUserQuestionItem[], answers: Record<string, string>) => void
   isLatest: boolean
 }
@@ -135,19 +135,18 @@ function OptionRow({
   )
 }
 
-// Parse answers from result JSON if present
-function parseAnswersFromResult(result: string | undefined): Record<string, string> | undefined {
-  if (!result) return undefined
-  try {
-    const parsed = JSON.parse(result)
-    return parsed.answers
-  } catch {
-    return undefined
-  }
+function parseAnswersFromResult(
+  result: Extract<ProcessedToolCall, { toolKind: "ask_user_question" }>["result"]
+): Record<string, string> | undefined {
+  return result?.answers
+}
+
+function getQuestionKey(question: AskUserQuestionItem): string {
+  return question.id || question.question
 }
 
 export function AskUserQuestionMessage({ message, onSubmit, isLatest }: Props) {
-  const questions = ((message.input as any)?.questions || []) as AskUserQuestionItem[]
+  const questions = message.input.questions
   const isComplete = !!message.result
   const savedAnswers = parseAnswersFromResult(message.result)
 
@@ -159,7 +158,7 @@ export function AskUserQuestionMessage({ message, onSubmit, isLatest }: Props) {
   const getEffectiveAnswer = (questionKey: string, question?: AskUserQuestionItem) => {
     const custom = customInputs[questionKey]?.trim()
     const selectedAnswer = answers[questionKey] || ""
-    const q = question || questions.find(q => q.question === questionKey)
+    const q = question || questions.find((candidate) => getQuestionKey(candidate) === questionKey)
 
     if (q?.multiSelect) {
       const parts = [selectedAnswer, custom].filter(Boolean)
@@ -170,14 +169,14 @@ export function AskUserQuestionMessage({ message, onSubmit, isLatest }: Props) {
   }
 
   const getSelectedOptions = (question: AskUserQuestionItem) => {
-    const answer = answers[question.question] || ""
+    const answer = answers[getQuestionKey(question)] || ""
     return question.multiSelect
       ? answer.split(", ").filter(Boolean)
       : [answer]
   }
 
   const handleOptionSelect = (question: AskUserQuestionItem, label: string) => {
-    const key = question.question
+    const key = getQuestionKey(question)
 
     if (question.multiSelect) {
       const current = answers[key] ? answers[key].split(", ").filter(Boolean) : []
@@ -196,7 +195,7 @@ export function AskUserQuestionMessage({ message, onSubmit, isLatest }: Props) {
   }
 
   const handleCustomInputChange = (question: AskUserQuestionItem, value: string) => {
-    const key = question.question
+    const key = getQuestionKey(question)
     setCustomInputs({ ...customInputs, [key]: value })
     if (value && !question.multiSelect) {
       setAnswers({ ...answers, [key]: "" })
@@ -204,15 +203,17 @@ export function AskUserQuestionMessage({ message, onSubmit, isLatest }: Props) {
   }
 
   const clearCustomInput = (question: AskUserQuestionItem) => {
-    if (question.multiSelect && customInputs[question.question]) {
-      setCustomInputs({ ...customInputs, [question.question]: "" })
+    const key = getQuestionKey(question)
+    if (question.multiSelect && customInputs[key]) {
+      setCustomInputs({ ...customInputs, [key]: "" })
     }
   }
 
-  const allQuestionsAnswered = questions.every((q) => getEffectiveAnswer(q.question).length > 0)
+  const allQuestionsAnswered = questions.every((question) => getEffectiveAnswer(getQuestionKey(question), question).length > 0)
   const currentQuestion = questions[currentIndex]
   const isLastQuestion = currentIndex === questions.length - 1
-  const currentHasAnswer = currentQuestion && getEffectiveAnswer(currentQuestion.question).length > 0
+  const currentHasAnswer = currentQuestion
+    && getEffectiveAnswer(getQuestionKey(currentQuestion), currentQuestion).length > 0
 
   const handleNext = () => {
     if (currentIndex < questions.length - 1) {
@@ -231,7 +232,8 @@ export function AskUserQuestionMessage({ message, onSubmit, isLatest }: Props) {
 
     const finalAnswers: Record<string, string> = {}
     for (const q of questions) {
-      finalAnswers[q.question] = getEffectiveAnswer(q.question)
+      const key = getQuestionKey(q)
+      finalAnswers[key] = getEffectiveAnswer(key, q)
     }
     setAnswers(finalAnswers)
     setIsSubmitted(true)
@@ -250,12 +252,12 @@ export function AskUserQuestionMessage({ message, onSubmit, isLatest }: Props) {
             <p className="">Answers</p>
           </div>
           {questions.map((question, index) => {
-            const answerValue = displayAnswers[question.question] || ""
+            const answerValue = displayAnswers[getQuestionKey(question)] || displayAnswers[question.question] || ""
             const isLast = index === questions.length - 1
 
             return (
               <div
-                key={question.question}
+                key={getQuestionKey(question)}
                 className={cn(
                   "w-full p-3 pt-2.5 pl-4 pr-5 bg-background flex items-center justify-between gap-3",
                   !isLast && "border-b border-border"
@@ -288,7 +290,7 @@ export function AskUserQuestionMessage({ message, onSubmit, isLatest }: Props) {
   if (!currentQuestion) return null
 
   const selectedOptions = getSelectedOptions(currentQuestion)
-  const customInput = customInputs[currentQuestion.question] || ""
+  const customInput = customInputs[getQuestionKey(currentQuestion)] || ""
 
   return (
     <div className="w-full space-y-3">

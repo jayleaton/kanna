@@ -1,252 +1,157 @@
-import { generateUUID } from "./utils"
-import type { ProcessedMessage, ProcessedToolCall } from "../components/messages/types"
+import { hydrateToolResult } from "../../shared/tools"
+import type { HydratedToolCall, HydratedTranscriptMessage, NormalizedToolCall, TranscriptEntry } from "../../shared/types"
 
-export interface Message {
-  id: string
-  messageId?: string
-  role: "user" | "assistant"
-  content: string
-  timestamp: string
-  processed?: ProcessedMessage
-  rawJson?: string
-  hidden?: boolean
+function createTimestamp(createdAt: number): string {
+  return new Date(createdAt).toISOString()
 }
 
-interface ParsedTranscriptMessage {
-  processed: ProcessedMessage | null
-  rawJson: string
-  isUserMessage?: boolean
-  userContent?: string
-}
-
-function formatJsonPretty(jsonString: string): string {
-  try {
-    return JSON.stringify(JSON.parse(jsonString), null, 2)
-  } catch {
-    return jsonString
+function createBaseMessage(entry: TranscriptEntry) {
+  return {
+    id: entry._id,
+    messageId: entry.messageId,
+    timestamp: createTimestamp(entry.createdAt),
+    hidden: entry.hidden,
   }
 }
 
-function createTimestamp(): string {
-  return new Date().toISOString()
+function hydrateToolCall(entry: Extract<TranscriptEntry, { kind: "tool_call" }>): HydratedToolCall {
+  return {
+    id: entry._id,
+    messageId: entry.messageId,
+    hidden: entry.hidden,
+    kind: "tool",
+    toolKind: entry.tool.toolKind,
+    toolName: entry.tool.toolName,
+    toolId: entry.tool.toolId,
+    input: entry.tool.input as HydratedToolCall["input"],
+    timestamp: createTimestamp(entry.createdAt),
+  } as HydratedToolCall
 }
 
-function parseTranscriptMessage(
-  jsonStr: string,
-  pendingToolCalls: Map<string, ProcessedToolCall>
-): ParsedTranscriptMessage {
-  const rawJson = formatJsonPretty(jsonStr)
-  const emptyResult = { processed: null, rawJson }
+function getStructuredToolResultFromDebug(entry: Extract<TranscriptEntry, { kind: "tool_result" }>): unknown {
+  if (!entry.debugRaw) return undefined
 
   try {
-    const data = JSON.parse(jsonStr)
+    const parsed = JSON.parse(entry.debugRaw) as { tool_use_result?: unknown }
+    return parsed.tool_use_result
+  } catch {
+    return undefined
+  }
+}
 
-    // User prompt message (stored by worker)
-    if (data.type === "user_prompt" && data.content) {
-      return { ...emptyResult, isUserMessage: true, userContent: data.content }
-    }
+export function processTranscriptMessages(entries: TranscriptEntry[]): HydratedTranscriptMessage[] {
+  const pendingToolCalls = new Map<string, { hydrated: HydratedToolCall; normalized: NormalizedToolCall }>()
+  const messages: HydratedTranscriptMessage[] = []
 
-    // System init message
-    if (data.type === "system" && data.subtype === "init") {
-      return {
-        processed: {
-          id: generateUUID(),
-          kind: "system",
-          model: data.model || "unknown",
-          tools: data.tools || [],
-          agents: data.agents || [],
-          slashCommands: data.slash_commands?.filter((e: string) => !e.startsWith("._")) || [],
-          mcpServers: data.mcp_servers || [],
-          timestamp: createTimestamp(),
-        },
-        rawJson,
-      }
-    }
-
-    // Account info message
-    if (data.type === "system" && data.subtype === "account_info") {
-      return {
-        processed: {
-          id: generateUUID(),
+  for (const entry of entries) {
+    switch (entry.kind) {
+      case "user_prompt":
+        messages.push({
+          ...createBaseMessage(entry),
+          kind: "user_prompt",
+          content: entry.content,
+        })
+        break
+      case "system_init":
+        messages.push({
+          ...createBaseMessage(entry),
+          kind: "system_init",
+          provider: entry.provider,
+          model: entry.model,
+          tools: entry.tools,
+          agents: entry.agents,
+          slashCommands: entry.slashCommands,
+          mcpServers: entry.mcpServers,
+          debugRaw: entry.debugRaw,
+        })
+        break
+      case "account_info":
+        messages.push({
+          ...createBaseMessage(entry),
           kind: "account_info",
-          accountInfo: data.accountInfo,
-          timestamp: createTimestamp(),
-        },
-        rawJson,
+          accountInfo: entry.accountInfo,
+        })
+        break
+      case "assistant_text":
+        messages.push({
+          ...createBaseMessage(entry),
+          kind: "assistant_text",
+          text: entry.text,
+        })
+        break
+      case "tool_call": {
+        const toolCall = hydrateToolCall(entry)
+        pendingToolCalls.set(entry.tool.toolId, { hydrated: toolCall, normalized: entry.tool })
+        messages.push(toolCall)
+        break
       }
-    }
+      case "tool_result": {
+        const pendingCall = pendingToolCalls.get(entry.toolId)
+        if (pendingCall) {
+          const rawResult = (
+            pendingCall.normalized.toolKind === "ask_user_question" ||
+            pendingCall.normalized.toolKind === "exit_plan_mode"
+          )
+            ? getStructuredToolResultFromDebug(entry) ?? entry.content
+            : entry.content
 
-    // Assistant message with text or tool_use
-    if (data.type === "assistant" && data.message?.content) {
-      for (const content of data.message.content) {
-        if (content.type === "text" && content.text) {
-          return {
-            processed: {
-              id: generateUUID(),
-              kind: "text",
-              text: content.text,
-              timestamp: createTimestamp(),
-            },
-            rawJson,
-          }
+          pendingCall.hydrated.result = hydrateToolResult(pendingCall.normalized, rawResult) as never
+          pendingCall.hydrated.rawResult = rawResult
+          pendingCall.hydrated.isError = entry.isError
         }
-
-        if (content.type === "tool_use") {
-          const toolCall: ProcessedToolCall = {
-            id: generateUUID(),
-            kind: "tool",
-            toolName: content.name,
-            toolId: content.id,
-            input: content.input || {},
-            timestamp: createTimestamp(),
-          }
-          pendingToolCalls.set(content.id, toolCall)
-          return { processed: toolCall, rawJson }
-        }
+        break
       }
-    }
-
-    // User message with tool_result - update existing pending tool call
-    if (data.type === "user" && data.message?.content) {
-      for (const content of data.message.content) {
-        if (content.type === "tool_result" && content.tool_use_id) {
-          const pendingCall = pendingToolCalls.get(content.tool_use_id)
-          if (pendingCall) {
-            pendingCall.result = content.content || "(empty)"
-            pendingCall.isError = content.is_error || false
-            pendingToolCalls.delete(content.tool_use_id)
-            return emptyResult
-          }
-        }
-      }
-    }
-
-    // Result message
-    if (data.type === "result") {
-      // Cancelled/interrupted gets its own message type
-      if (data.subtype === "cancelled") {
-        return {
-          processed: {
-            id: generateUUID(),
-            kind: "interrupted",
-            timestamp: createTimestamp(),
-          },
-          rawJson,
-        }
-      }
-
-      return {
-        processed: {
-          id: generateUUID(),
+      case "result":
+        messages.push({
+          ...createBaseMessage(entry),
           kind: "result",
-          success: !data.is_error,
-          result: data.result || "",
-          durationMs: data.duration_ms || 0,
-          costUsd: data.total_cost_usd,
-          timestamp: createTimestamp(),
-        },
-        rawJson,
-      }
-    }
-
-    // Status message (e.g., compacting)
-    if (data.type === "system" && data.subtype === "status" && data.status) {
-      return {
-        processed: {
-          id: generateUUID(),
+          success: !entry.isError,
+          cancelled: entry.subtype === "cancelled",
+          result: entry.result,
+          durationMs: entry.durationMs,
+          costUsd: entry.costUsd,
+        })
+        break
+      case "status":
+        messages.push({
+          ...createBaseMessage(entry),
           kind: "status",
-          status: data.status,
-          timestamp: createTimestamp(),
-        },
-        rawJson,
-      }
-    }
-
-    // Compact boundary message
-    if (data.type === "system" && data.subtype === "compact_boundary") {
-      return {
-        processed: {
-          id: generateUUID(),
+          status: entry.status,
+        })
+        break
+      case "compact_boundary":
+        messages.push({
+          ...createBaseMessage(entry),
           kind: "compact_boundary",
-          timestamp: createTimestamp(),
-        },
-        rawJson,
-      }
-    }
-
-    // Context cleared boundary message
-    if (data.type === "system" && data.subtype === "context_cleared") {
-      return {
-        processed: {
-          id: generateUUID(),
+        })
+        break
+      case "compact_summary":
+        messages.push({
+          ...createBaseMessage(entry),
+          kind: "compact_summary",
+          summary: entry.summary,
+        })
+        break
+      case "context_cleared":
+        messages.push({
+          ...createBaseMessage(entry),
           kind: "context_cleared",
-          timestamp: createTimestamp(),
-        },
-        rawJson,
-      }
+        })
+        break
+      case "interrupted":
+        messages.push({
+          ...createBaseMessage(entry),
+          kind: "interrupted",
+        })
+        break
+      default:
+        messages.push({
+          ...createBaseMessage(entry),
+          kind: "unknown",
+          json: JSON.stringify(entry, null, 2),
+        })
+        break
     }
-
-    // User message that is a compact summary
-    if (data.type === "user" && data.message?.role === "user" && typeof data.message.content === "string") {
-      if (data.message.content.startsWith("This session is being continued")) {
-        return {
-          processed: {
-            id: generateUUID(),
-            kind: "compact_summary",
-            summary: data.message.content,
-            timestamp: createTimestamp(),
-          },
-          rawJson,
-        }
-      }
-    }
-
-    return emptyResult
-  } catch {
-    return emptyResult
-  }
-}
-
-/**
- * Process raw Convex messages into display-ready Message objects.
- * Encapsulates all transcript parsing logic including tool call pairing.
- */
-export function processTranscriptMessages(
-  convexMessages: { _id: string; message: string; messageId?: string; createdAt: number; hidden?: boolean }[]
-): Message[] {
-  const pendingToolCalls = new Map<string, ProcessedToolCall>()
-  const messages: Message[] = []
-
-  for (const convexMsg of convexMessages) {
-    const { processed, rawJson, isUserMessage, userContent } = parseTranscriptMessage(
-      convexMsg.message,
-      pendingToolCalls
-    )
-
-    if (isUserMessage && userContent) {
-      messages.push({
-        id: convexMsg._id,
-        messageId: convexMsg.messageId,
-        role: "user",
-        content: userContent,
-        timestamp: new Date(convexMsg.createdAt).toISOString(),
-        hidden: convexMsg.hidden,
-      })
-      continue
-    }
-
-    if (processed === null) continue
-
-    messages.push({
-      id: convexMsg._id,
-      messageId: convexMsg.messageId,
-      role: "assistant",
-      content: rawJson,
-      timestamp: new Date(convexMsg.createdAt).toISOString(),
-      processed,
-      rawJson,
-      hidden: convexMsg.hidden,
-    })
   }
 
   return messages

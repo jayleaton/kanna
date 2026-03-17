@@ -1,4 +1,4 @@
-import type { ChatSnapshot, LocalProjectsSnapshot, SidebarData } from "./types"
+import type { AgentProvider, ChatSnapshot, LocalProjectsSnapshot, ModelOptions, SidebarData } from "./types"
 
 export type SubscriptionTopic =
   | { type: "sidebar" }
@@ -13,7 +13,17 @@ export type ClientCommand =
   | { type: "chat.create"; projectId: string }
   | { type: "chat.rename"; chatId: string; title: string }
   | { type: "chat.delete"; chatId: string }
-  | { type: "chat.send"; chatId?: string; projectId?: string; content: string; model?: string; effort?: string; planMode?: boolean }
+  | {
+      type: "chat.send"
+      chatId?: string
+      projectId?: string
+      provider?: AgentProvider
+      content: string
+      model?: string
+      modelOptions?: ModelOptions
+      effort?: string
+      planMode?: boolean
+    }
   | { type: "chat.cancel"; chatId: string }
   | { type: "chat.respondTool"; chatId: string; toolUseId: string; result: unknown }
 

@@ -1,6 +1,6 @@
 import React, { useMemo } from "react"
 import type { AskUserQuestionItem, ProcessedToolCall } from "../components/messages/types"
-import type { Message } from "../lib/parseTranscript"
+import type { HydratedTranscriptMessage } from "../../shared/types"
 import { UserMessage } from "../components/messages/UserMessage"
 import { RawJsonMessage } from "../components/messages/RawJsonMessage"
 import { SystemMessage } from "../components/messages/SystemMessage"
@@ -20,23 +20,23 @@ import { CollapsedToolGroup } from "../components/messages/CollapsedToolGroup"
 const SPECIAL_TOOL_NAMES = new Set(["AskUserQuestion", "ExitPlanMode", "TodoWrite"])
 
 type RenderItem =
-  | { type: "single"; message: Message; index: number }
-  | { type: "tool-group"; messages: Message[]; startIndex: number }
+  | { type: "single"; message: HydratedTranscriptMessage; index: number }
+  | { type: "tool-group"; messages: HydratedTranscriptMessage[]; startIndex: number }
 
-function isCollapsibleToolCall(message: Message) {
-  if (message.processed?.kind !== "tool") return false
-  const toolName = (message.processed as ProcessedToolCall).toolName
+function isCollapsibleToolCall(message: HydratedTranscriptMessage) {
+  if (message.kind !== "tool") return false
+  const toolName = (message as ProcessedToolCall).toolName
   return !SPECIAL_TOOL_NAMES.has(toolName)
 }
 
-function groupMessages(messages: Message[]): RenderItem[] {
+function groupMessages(messages: HydratedTranscriptMessage[]): RenderItem[] {
   const result: RenderItem[] = []
   let index = 0
 
   while (index < messages.length) {
     const message = messages[index]
     if (isCollapsibleToolCall(message)) {
-      const group: Message[] = [message]
+      const group: HydratedTranscriptMessage[] = [message]
       const startIndex = index
       index += 1
       while (index < messages.length && isCollapsibleToolCall(messages[index])) {
@@ -59,7 +59,7 @@ function groupMessages(messages: Message[]): RenderItem[] {
 }
 
 interface KannaTranscriptProps {
-  messages: Message[]
+  messages: HydratedTranscriptMessage[]
   isLoading: boolean
   localPath?: string
   latestToolIds: Record<string, string | null>
@@ -81,58 +81,53 @@ export function KannaTranscript({
 }: KannaTranscriptProps) {
   const renderItems = useMemo(() => groupMessages(messages), [messages])
 
-  function renderMessage(message: Message, index: number): React.ReactNode {
-    if (message.role === "user") {
+  function renderMessage(message: HydratedTranscriptMessage, index: number): React.ReactNode {
+    if (message.kind === "user_prompt") {
       return <UserMessage key={message.id} content={message.content} />
     }
 
-    const processed = message.processed
-    if (!processed) {
-      return <RawJsonMessage key={message.id} json={message.content} />
-    }
-
-    switch (processed.kind) {
-      case "system": {        
-        const isFirst = messages.findIndex((entry) => entry.processed?.kind === "system") === index
-        return isFirst ? <SystemMessage key={message.id} message={processed} rawJson={message.rawJson} /> : null
-        // return <SystemMessage key={message.id} message={processed} rawJson={message.rawJson} /> 
-
+    switch (message.kind) {
+      case "unknown":
+        return <RawJsonMessage key={message.id} json={message.json} />
+      case "system_init": {
+        const isFirst = messages.findIndex((entry) => entry.kind === "system_init") === index
+        return isFirst ? <SystemMessage key={message.id} message={message} rawJson={message.debugRaw} /> : null
       }
       case "account_info": {
-        const isFirst = messages.findIndex((entry) => entry.processed?.kind === "account_info") === index
-        return isFirst ? <AccountInfoMessage key={message.id} message={processed} /> : null
+        const isFirst = messages.findIndex((entry) => entry.kind === "account_info") === index
+        return isFirst ? <AccountInfoMessage key={message.id} message={message} /> : null
       }
-      case "text":
-        return <TextMessage key={message.id} message={processed} />
+      case "assistant_text":
+        return <TextMessage key={message.id} message={message} />
       case "tool":
-        if (processed.toolName === "AskUserQuestion") {
+        if (message.toolKind === "ask_user_question") {
           return (
             <AskUserQuestionMessage
               key={message.id}
-              message={processed}
+              message={message}
               onSubmit={onAskUserQuestionSubmit}
-              isLatest={processed.id === latestToolIds.AskUserQuestion}
+              isLatest={message.id === latestToolIds.AskUserQuestion}
             />
           )
         }
-        if (processed.toolName === "ExitPlanMode") {
+        if (message.toolKind === "exit_plan_mode") {
           return (
             <ExitPlanModeMessage
               key={message.id}
-              message={processed}
+              message={message}
               onConfirm={onExitPlanModeConfirm}
-              isLatest={processed.id === latestToolIds.ExitPlanMode}
+              isLatest={message.id === latestToolIds.ExitPlanMode}
             />
           )
         }
-        if (processed.toolName === "TodoWrite") {
-          if (processed.id !== latestToolIds.TodoWrite) return null
-          return <TodoWriteMessage key={message.id} message={processed} />
+        if (message.toolKind === "todo_write") {
+          if (message.id !== latestToolIds.TodoWrite) return null
+          return <TodoWriteMessage key={message.id} message={message} />
         }
         return (
           <ToolCallMessage
             key={message.id}
-            message={processed}
+            message={message}
             isLoading={isLoading}
             localPath={localPath}
           />
@@ -140,21 +135,21 @@ export function KannaTranscript({
       case "result": {
         const nextMessage = messages[index + 1]
         const previousMessage = messages[index - 1]
-        if (nextMessage?.processed?.kind === "context_cleared" || previousMessage?.processed?.kind === "context_cleared") {
+        if (nextMessage?.kind === "context_cleared" || previousMessage?.kind === "context_cleared") {
           return null
         }
-        return <ResultMessage key={message.id} message={processed} />
+        return <ResultMessage key={message.id} message={message} />
       }
       case "interrupted":
-        return <InterruptedMessage key={message.id} message={processed} />
+        return <InterruptedMessage key={message.id} message={message} />
       case "compact_boundary":
         return <CompactBoundaryMessage key={message.id} />
       case "context_cleared":
         return <ContextClearedMessage key={message.id} />
       case "compact_summary":
-        return <CompactSummaryMessage key={message.id} message={processed} />
+        return <CompactSummaryMessage key={message.id} message={message} />
       case "status":
-        return index === messages.length - 1 ? <StatusMessage key={message.id} message={processed} /> : null
+        return index === messages.length - 1 ? <StatusMessage key={message.id} message={message} /> : null
     }
   }
 

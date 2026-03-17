@@ -2,7 +2,6 @@ import { useState, useCallback, type ReactNode, type ComponentPropsWithoutRef } 
 import { Button } from "../ui/button"
 import {
   ArrowDownToLine,
-  BarChart3,
   CheckLine,
   ChevronRight,
   ListTodo,
@@ -10,7 +9,6 @@ import {
   MessageCircleQuestion,
   Pencil,
   Search,
-  Database,
   Sparkles,
   SquareX,
   Terminal,
@@ -47,19 +45,10 @@ export const toolIcons: Record<string, LucideIcon> = {
 
 export const defaultToolIcon: LucideIcon = ToyBrick
 
-// Get icon for a tool, handling dynamic patterns like database query tools
+// Get icon for a tool.
 export function getToolIcon(toolName: string): LucideIcon {
-  // Check static mapping first
   if (toolIcons[toolName]) {
     return toolIcons[toolName]
-  }
-  // Database query tools: mcp__db__{db}_query
-  if (/^mcp__db__.+_query$/.test(toolName)) {
-    return Database
-  }
-  // Chart tool
-  if (toolName === "mcp__lever__show_chart") {
-    return BarChart3
   }
   return defaultToolIcon
 }
@@ -300,4 +289,3 @@ export const markdownWithHeadingsComponents = {
     <h6 className="text-sm font-medium mt-3 mb-1 first:mt-0">{children}</h6>
   ),
 }
-

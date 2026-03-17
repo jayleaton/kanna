@@ -99,7 +99,7 @@ function buildDiffLines(rawDiff: RawLine[]): DiffLine[] {
 export function FileContentView({ content, isDiff = false, oldString, newString }: FileContentViewProps) {
   // Diff mode
   const diffLines = useMemo(() => {
-    if (isDiff && oldString && newString) {
+    if (isDiff && oldString !== undefined && newString !== undefined) {
       return computeUnifiedDiff(oldString, newString)
     }
     return []

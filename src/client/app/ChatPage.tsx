@@ -93,6 +93,8 @@ export function ChatPage() {
               disabled={!state.hasSelectedProject || state.runtime?.status === "waiting_for_user"}
               canCancel={state.canCancel}
               chatId={state.activeChatId}
+              activeProvider={state.runtime?.provider ?? null}
+              availableProviders={state.availableProviders}
             />
           </div>
         </div>
