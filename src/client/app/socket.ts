@@ -1,7 +1,8 @@
-import type { ClientCommand, ClientEnvelope, ServerEnvelope, SubscriptionTopic } from "../../shared/protocol"
+import type { ClientCommand, ClientEnvelope, ServerEnvelope, SubscriptionTopic, TerminalEvent, TerminalSnapshot } from "../../shared/protocol"
 import { LOG_PREFIX } from "../../shared/branding"
 
 type SnapshotListener<T> = (value: T) => void
+type EventListener<T> = (value: T) => void
 export type SocketStatus = "connecting" | "connected" | "disconnected"
 type StatusListener = (status: SocketStatus) => void
 
@@ -9,9 +10,10 @@ const STALE_CONNECTION_MS = 25_000
 const HEARTBEAT_INTERVAL_MS = 15_000
 const PING_TIMEOUT_MS = 4_000
 
-interface SubscriptionEntry<T> {
+interface SubscriptionEntry<TSnapshot, TEvent = never> {
   topic: SubscriptionTopic
-  listener: SnapshotListener<T>
+  listener: SnapshotListener<TSnapshot>
+  eventListener?: EventListener<TEvent>
 }
 
 export class KannaSocket {
@@ -20,7 +22,7 @@ export class KannaSocket {
   private started = false
   private reconnectTimer: number | null = null
   private reconnectDelayMs = 750
-  private readonly subscriptions = new Map<string, SubscriptionEntry<unknown>>()
+  private readonly subscriptions = new Map<string, SubscriptionEntry<unknown, unknown>>()
   private readonly pending = new Map<string, { resolve: (value: unknown) => void; reject: (reason?: unknown) => void }>()
   private readonly outboundQueue: ClientEnvelope[] = []
   private readonly statusListeners = new Set<StatusListener>()
@@ -97,6 +99,27 @@ export class KannaSocket {
     }
   }
 
+  subscribeTerminal(
+    terminalId: string,
+    handlers: {
+      onSnapshot: SnapshotListener<TerminalSnapshot | null>
+      onEvent?: EventListener<TerminalEvent>
+    }
+  ) {
+    const id = crypto.randomUUID()
+    const topic: SubscriptionTopic = { type: "terminal", terminalId }
+    this.subscriptions.set(id, {
+      topic,
+      listener: handlers.onSnapshot as SnapshotListener<unknown>,
+      eventListener: handlers.onEvent as EventListener<unknown> | undefined,
+    })
+    this.enqueue({ v: 1, type: "subscribe", id, topic })
+    return () => {
+      this.subscriptions.delete(id)
+      this.enqueue({ v: 1, type: "unsubscribe", id })
+    }
+  }
+
   command<TResult = unknown>(command: ClientCommand) {
     const id = crypto.randomUUID()
     const envelope: ClientEnvelope = { v: 1, type: "command", id, command }
@@ -160,6 +183,12 @@ export class KannaSocket {
       if (payload.type === "snapshot") {
         const subscription = this.subscriptions.get(payload.id)
         subscription?.listener(payload.snapshot.data)
+        return
+      }
+
+      if (payload.type === "event") {
+        const subscription = this.subscriptions.get(payload.id)
+        subscription?.eventListener?.(payload.event)
         return
       }
 

@@ -80,9 +80,11 @@ Local File System (~/.kanna/data/, project dirs)
 
 ## Requirements
 
-- [Bun](https://bun.sh) v1.0+
+- [Bun](https://bun.sh) v1.3.5+
 - A working [Claude Code](https://docs.anthropic.com/en/docs/claude-code) environment
 - *(Optional)* [Codex CLI](https://github.com/openai/codex) for Codex provider support
+
+Embedded terminal support uses Bun's native PTY APIs and currently works on macOS/Linux.
 
 ## Install
 

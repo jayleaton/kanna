@@ -14,6 +14,7 @@ function createDeps(overrides: Partial<Parameters<typeof runCli>[1]> = {}) {
 
   const deps: Parameters<typeof runCli>[1] = {
     version: "0.3.0",
+    bunVersion: "1.3.10",
     startServer: async (options) => {
       calls.startServer.push(options)
       return {
@@ -108,6 +109,18 @@ describe("runCli", () => {
     expect(calls.relaunch).toEqual([])
     expect(calls.startServer).toEqual([{ port: 4000, openBrowser: false, strictPort: false }])
     expect(calls.openUrl).toEqual([])
+  })
+
+  test("fails fast on unsupported Bun versions", async () => {
+    const { calls, deps } = createDeps({
+      bunVersion: "1.3.1",
+    })
+
+    const result = await runCli(["--no-open"], deps)
+
+    expect(result).toEqual({ kind: "exited", code: 1 })
+    expect(calls.startServer).toEqual([])
+    expect(calls.warn).toContain("[kanna] Bun 1.3.5+ is required for the embedded terminal. Current Bun: 1.3.1")
   })
 
   test("opens the root route in the browser", async () => {

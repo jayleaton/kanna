@@ -7,6 +7,7 @@ import type { DiscoveredProject } from "./discovery"
 import { EventStore } from "./event-store"
 import { openExternal } from "./external-open"
 import { ensureProjectDirectory } from "./paths"
+import { TerminalManager } from "./terminal-manager"
 import { deriveChatSnapshot, deriveLocalProjectsSnapshot, deriveSidebarData } from "./read-models"
 
 export interface ClientState {
@@ -16,6 +17,7 @@ export interface ClientState {
 interface CreateWsRouterArgs {
   store: EventStore
   agent: AgentCoordinator
+  terminals: TerminalManager
   refreshDiscovery: () => Promise<DiscoveredProject[]>
   getDiscoveredProjects: () => DiscoveredProject[]
   machineDisplayName: string
@@ -28,6 +30,7 @@ function send(ws: ServerWebSocket<ClientState>, message: ServerEnvelope) {
 export function createWsRouter({
   store,
   agent,
+  terminals,
   refreshDiscovery,
   getDiscoveredProjects,
   machineDisplayName,
@@ -62,6 +65,18 @@ export function createWsRouter({
       }
     }
 
+    if (topic.type === "terminal") {
+      return {
+        v: PROTOCOL_VERSION,
+        type: "snapshot",
+        id,
+        snapshot: {
+          type: "terminal",
+          data: terminals.getSnapshot(topic.terminalId),
+        },
+      }
+    }
+
     return {
       v: PROTOCOL_VERSION,
       type: "snapshot",
@@ -84,6 +99,33 @@ export function createWsRouter({
       pushSnapshots(ws)
     }
   }
+
+  function pushTerminalSnapshot(terminalId: string) {
+    for (const ws of sockets) {
+      for (const [id, topic] of ws.data.subscriptions.entries()) {
+        if (topic.type !== "terminal" || topic.terminalId !== terminalId) continue
+        send(ws, createEnvelope(id, topic))
+      }
+    }
+  }
+
+  function pushTerminalEvent(terminalId: string, event: Extract<ServerEnvelope, { type: "event" }>["event"]) {
+    for (const ws of sockets) {
+      for (const [id, topic] of ws.data.subscriptions.entries()) {
+        if (topic.type !== "terminal" || topic.terminalId !== terminalId) continue
+        send(ws, {
+          v: PROTOCOL_VERSION,
+          type: "event",
+          id,
+          event,
+        })
+      }
+    }
+  }
+
+  const disposeTerminalEvents = terminals.onEvent((event) => {
+    pushTerminalEvent(event.terminalId, event)
+  })
 
   async function handleCommand(ws: ServerWebSocket<ClientState>, message: Extract<ClientEnvelope, { type: "command" }>) {
     const { command, id } = message
@@ -108,8 +150,12 @@ export function createWsRouter({
           break
         }
         case "project.remove": {
+          const project = store.getProject(command.projectId)
           for (const chat of store.listChatsByProject(command.projectId)) {
             await agent.cancel(chat.id)
+          }
+          if (project) {
+            terminals.closeByCwd(project.localPath)
           }
           await store.removeProject(command.projectId)
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id })
@@ -150,6 +196,37 @@ export function createWsRouter({
           await agent.respondTool(command)
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id })
           break
+        }
+        case "terminal.create": {
+          const project = store.getProject(command.projectId)
+          if (!project) {
+            throw new Error("Project not found")
+          }
+          const snapshot = terminals.createTerminal({
+            projectPath: project.localPath,
+            terminalId: command.terminalId,
+            cols: command.cols,
+            rows: command.rows,
+            scrollback: command.scrollback,
+          })
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: snapshot })
+          return
+        }
+        case "terminal.input": {
+          terminals.write(command.terminalId, command.data)
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id })
+          return
+        }
+        case "terminal.resize": {
+          terminals.resize(command.terminalId, command.cols, command.rows)
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id })
+          return
+        }
+        case "terminal.close": {
+          terminals.close(command.terminalId)
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id })
+          pushTerminalSnapshot(command.terminalId)
+          return
         }
       }
 
@@ -202,6 +279,9 @@ export function createWsRouter({
       }
 
       void handleCommand(ws, parsed)
+    },
+    dispose() {
+      disposeTerminalEvents()
     },
   }
 }

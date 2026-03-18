@@ -234,6 +234,22 @@
     margin-bottom: 20px;
   }
 
+  .kanna-terminal,
+  .kanna-terminal .xterm,
+  .kanna-terminal .xterm-scrollable-element,
+  .kanna-terminal .xterm-viewport,
+  .kanna-terminal .xterm-screen,
+  .kanna-terminal .xterm-helpers,
+  .kanna-terminal .xterm-helper-textarea,
+  .kanna-terminal .composition-view {
+    background: transparent !important;
+    background-color: transparent !important;
+  }
+
+  .kanna-terminal .xterm-screen canvas {
+    background: transparent !important;
+  }
+
   /* Custom scrollbar styling */
   * {
     scrollbar-width: thin;

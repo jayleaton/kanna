@@ -23,6 +23,7 @@ export type CliRunResult = StartedCli | ExitedCli
 
 export interface CliRuntimeDeps {
   version: string
+  bunVersion: string
   startServer: (options: CliOptions) => Promise<{ port: number; stop: () => Promise<void> }>
   fetchLatestVersion: (packageName: string) => Promise<string>
   installLatest: (packageName: string) => boolean
@@ -36,6 +37,8 @@ type ParsedArgs =
   | { kind: "run"; options: CliOptions }
   | { kind: "help" }
   | { kind: "version" }
+
+const MINIMUM_BUN_VERSION = "1.3.5"
 
 function printHelp() {
   console.log(`${APP_NAME} — local-only project chat UI
@@ -161,6 +164,11 @@ export async function runCli(argv: string[], deps: CliRuntimeDeps): Promise<CliR
   if (parsedArgs.kind === "help") {
     printHelp()
     return { kind: "exited", code: 0 }
+  }
+
+  if (compareVersions(deps.bunVersion, MINIMUM_BUN_VERSION) < 0) {
+    deps.warn(`${LOG_PREFIX} Bun ${MINIMUM_BUN_VERSION}+ is required for the embedded terminal. Current Bun: ${deps.bunVersion}`)
+    return { kind: "exited", code: 1 }
   }
 
   const relaunchExitCode = await maybeSelfUpdate(argv, deps)

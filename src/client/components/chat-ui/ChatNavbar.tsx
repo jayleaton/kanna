@@ -1,6 +1,7 @@
 import { Flower, Code, FolderOpen, Menu, PanelLeft, SquarePen, Terminal } from "lucide-react"
 import { Button } from "../ui/button"
 import { CardHeader } from "../ui/card"
+import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip"
 import { cn } from "../../lib/utils"
 
 interface Props {
@@ -9,7 +10,9 @@ interface Props {
   onExpandSidebar: () => void
   onNewChat: () => void
   localPath?: string
-  onOpenExternal?: (action: "open_finder" | "open_terminal" | "open_editor") => void
+  embeddedTerminalVisible?: boolean
+  onToggleEmbeddedTerminal?: () => void
+  onOpenExternal?: (action: "open_finder" | "open_editor") => void
 }
 
 export function ChatNavbar({
@@ -18,6 +21,8 @@ export function ChatNavbar({
   onExpandSidebar,
   onNewChat,
   localPath,
+  embeddedTerminalVisible = false,
+  onToggleEmbeddedTerminal,
   onOpenExternal,
 }: Props) {
   return (
@@ -66,35 +71,48 @@ export function ChatNavbar({
         <div className="flex-1 min-w-0" />
 
         <div className="flex items-center gap-1 flex-shrink-0">
-          {localPath && onOpenExternal && (
+          {localPath && (onOpenExternal || onToggleEmbeddedTerminal) && (
             <>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => onOpenExternal("open_finder")}
-                title="Open in Finder"
-                className="border border-border/0"
-              >
-                <FolderOpen className="h-4.5 w-4.5" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => onOpenExternal("open_terminal")}
-                title="Open in Terminal"
-                className="border border-border/0"
-              >
-                <Terminal className="h-4.5 w-4.5" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => onOpenExternal("open_editor")}
-                title="Open in Cursor"
-                className="border border-border/0"
-              >
-                <Code className="h-4.5 w-4.5" />
-              </Button>
+              {onOpenExternal ? (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => onOpenExternal("open_finder")}
+                  title="Open in Finder"
+                  className="border border-border/0"
+                >
+                  <FolderOpen className="h-4.5 w-4.5" />
+                </Button>
+              ) : null}
+              {onToggleEmbeddedTerminal ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={onToggleEmbeddedTerminal}
+                      className={cn(
+                        "border border-border/0",
+                        embeddedTerminalVisible && "text-white"
+                      )}
+                    >
+                      <Terminal className="h-4.5 w-4.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">Cmd+J</TooltipContent>
+                </Tooltip>
+              ) : null}
+              {onOpenExternal ? (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => onOpenExternal("open_editor")}
+                  title="Open in Cursor"
+                  className="border border-border/0"
+                >
+                  <Code className="h-4.5 w-4.5" />
+                </Button>
+              ) : null}
             </>
           )}
         </div>

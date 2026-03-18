@@ -4,6 +4,7 @@ import { EventStore } from "./event-store"
 import { AgentCoordinator } from "./agent"
 import { discoverProjects, type DiscoveredProject } from "./discovery"
 import { getMachineDisplayName } from "./machine-name"
+import { TerminalManager } from "./terminal-manager"
 import { createWsRouter, type ClientState } from "./ws-router"
 
 export interface StartKannaServerOptions {
@@ -28,6 +29,7 @@ export async function startKannaServer(options: StartKannaServerOptions = {}) {
 
   let server: ReturnType<typeof Bun.serve<ClientState>>
   let router: ReturnType<typeof createWsRouter>
+  const terminals = new TerminalManager()
   const agent = new AgentCoordinator({
     store,
     onStateChange: () => {
@@ -37,6 +39,7 @@ export async function startKannaServer(options: StartKannaServerOptions = {}) {
   router = createWsRouter({
     store,
     agent,
+    terminals,
     refreshDiscovery,
     getDiscoveredProjects: () => discoveredProjects,
     machineDisplayName,
@@ -97,6 +100,8 @@ export async function startKannaServer(options: StartKannaServerOptions = {}) {
     for (const chatId of [...agent.activeTurns.keys()]) {
       await agent.cancel(chatId)
     }
+    router.dispose()
+    terminals.closeAll()
     await store.compact()
     server.stop(true)
   }

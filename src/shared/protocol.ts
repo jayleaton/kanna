@@ -4,6 +4,25 @@ export type SubscriptionTopic =
   | { type: "sidebar" }
   | { type: "local-projects" }
   | { type: "chat"; chatId: string }
+  | { type: "terminal"; terminalId: string }
+
+export interface TerminalSnapshot {
+  terminalId: string
+  title: string
+  cwd: string
+  shell: string
+  cols: number
+  rows: number
+  scrollback: number
+  serializedState: string
+  status: "running" | "exited"
+  exitCode: number | null
+  signal?: number
+}
+
+export type TerminalEvent =
+  | { type: "terminal.output"; terminalId: string; data: string }
+  | { type: "terminal.exit"; terminalId: string; exitCode: number; signal?: number }
 
 export type ClientCommand =
   | { type: "project.open"; localPath: string }
@@ -27,6 +46,10 @@ export type ClientCommand =
     }
   | { type: "chat.cancel"; chatId: string }
   | { type: "chat.respondTool"; chatId: string; toolUseId: string; result: unknown }
+  | { type: "terminal.create"; projectId: string; terminalId: string; cols: number; rows: number; scrollback: number }
+  | { type: "terminal.input"; terminalId: string; data: string }
+  | { type: "terminal.resize"; terminalId: string; cols: number; rows: number }
+  | { type: "terminal.close"; terminalId: string }
 
 export type ClientEnvelope =
   | { v: 1; type: "subscribe"; id: string; topic: SubscriptionTopic }
@@ -37,9 +60,11 @@ export type ServerSnapshot =
   | { type: "sidebar"; data: SidebarData }
   | { type: "local-projects"; data: LocalProjectsSnapshot }
   | { type: "chat"; data: ChatSnapshot | null }
+  | { type: "terminal"; data: TerminalSnapshot | null }
 
 export type ServerEnvelope =
   | { v: 1; type: "snapshot"; id: string; snapshot: ServerSnapshot }
+  | { v: 1; type: "event"; id: string; event: TerminalEvent }
   | { v: 1; type: "ack"; id: string; result?: unknown }
   | { v: 1; type: "error"; id?: string; message: string }
 

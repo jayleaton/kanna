@@ -14,6 +14,7 @@ const VERSION: string = pkg.version ?? "0.0.0"
 
 const result = await runCli(process.argv.slice(2), {
   version: VERSION,
+  bunVersion: Bun.version,
   startServer: startKannaServer,
   fetchLatestVersion: fetchLatestPackageVersion,
   installLatest: installLatestPackage,

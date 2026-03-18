@@ -1,6 +1,11 @@
 import { Info, Loader2, Settings } from "lucide-react"
 import { useOutletContext } from "react-router-dom"
 import { SDK_CLIENT_APP } from "../../shared/branding"
+import {
+  MAX_TERMINAL_SCROLLBACK,
+  MIN_TERMINAL_SCROLLBACK,
+  useTerminalPreferencesStore,
+} from "../stores/terminalPreferencesStore"
 import { PageHeader } from "./PageHeader"
 import type { KannaState } from "./useKannaState"
 
@@ -28,6 +33,8 @@ export function SettingsPage() {
   const state = useOutletContext<KannaState>()
   const isConnecting = state.connectionStatus === "connecting" || !state.localProjectsReady
   const machineName = state.localProjects?.machine.displayName ?? "Settings"
+  const scrollbackLines = useTerminalPreferencesStore((store) => store.scrollbackLines)
+  const setScrollbackLines = useTerminalPreferencesStore((store) => store.setScrollbackLines)
 
   return (
     <div className="flex-1 min-w-0 overflow-y-auto bg-background">
@@ -71,6 +78,26 @@ export function SettingsPage() {
               description="Current Kanna desktop client build."
               value={SDK_CLIENT_APP.split("/")[1] ?? "unknown"}
             />
+            <div className="rounded-2xl border border-border bg-card p-4">
+              <div className="mb-1 text-sm font-medium text-foreground">Terminal Scrollback</div>
+              <div className="mb-3 text-sm text-muted-foreground">
+                Number of lines retained for embedded terminal history.
+              </div>
+              <div className="flex items-center gap-3">
+                <input
+                  type="number"
+                  min={MIN_TERMINAL_SCROLLBACK}
+                  max={MAX_TERMINAL_SCROLLBACK}
+                  step={100}
+                  value={scrollbackLines}
+                  onChange={(event) => setScrollbackLines(Number(event.target.value))}
+                  className="w-32 rounded-xl border border-border bg-background px-3 py-2 font-mono text-sm text-foreground outline-none ring-0"
+                />
+                <div className="text-xs text-muted-foreground">
+                  {MIN_TERMINAL_SCROLLBACK}-{MAX_TERMINAL_SCROLLBACK} lines
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
