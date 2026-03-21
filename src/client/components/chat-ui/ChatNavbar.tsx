@@ -106,7 +106,7 @@ export function ChatNavbar({
                       <Terminal className="h-4.5 w-4.5" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent side="bottom">Cmd+J</TooltipContent>
+                  <TooltipContent side="bottom">Cmd+J / Ctrl+`</TooltipContent>
                 </Tooltip>
               ) : null}
               {onOpenExternal ? (
@@ -123,18 +123,22 @@ export function ChatNavbar({
             </>
           )}
           {onToggleRightSidebar ? (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={onToggleRightSidebar}
-              title="Toggle right sidebar"
-              className={cn(
-                "border border-border/0",
-                rightSidebarVisible && "text-white"
-              )}
-            >
-              <PanelRight className="h-4.5 w-4.5" />
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={onToggleRightSidebar}
+                  className={cn(
+                    "border border-border/0",
+                    rightSidebarVisible && "text-white"
+                  )}
+                >
+                  <PanelRight className="h-4.5 w-4.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">Ctrl+B</TooltipContent>
+            </Tooltip>
           ) : null}
         </div>
       </div>

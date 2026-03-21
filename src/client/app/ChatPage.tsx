@@ -129,6 +129,37 @@ export function ChatPage() {
   }, [addTerminal, hasTerminals, projectId, toggleVisibility])
 
   useEffect(() => {
+    function handleTerminalBacktickKeydown(event: KeyboardEvent) {
+      if (!projectId) return
+      if (!event.ctrlKey || event.key !== "`") return
+
+      event.preventDefault()
+      if (hasTerminals) {
+        toggleVisibility(projectId)
+        return
+      }
+
+      addTerminal(projectId)
+    }
+
+    window.addEventListener("keydown", handleTerminalBacktickKeydown)
+    return () => window.removeEventListener("keydown", handleTerminalBacktickKeydown)
+  }, [addTerminal, hasTerminals, projectId, toggleVisibility])
+
+  useEffect(() => {
+    function handleRightSidebarKeydown(event: KeyboardEvent) {
+      if (!projectId) return
+      if (!event.ctrlKey || event.key.toLowerCase() !== "b") return
+
+      event.preventDefault()
+      toggleRightSidebar(projectId)
+    }
+
+    window.addEventListener("keydown", handleRightSidebarKeydown)
+    return () => window.removeEventListener("keydown", handleRightSidebarKeydown)
+  }, [projectId, toggleRightSidebar])
+
+  useEffect(() => {
     if (state.messages.length === 0) return
 
     const frameId = window.requestAnimationFrame(() => {
