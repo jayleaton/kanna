@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { PROTOCOL_VERSION } from "../shared/types"
 import { createEmptyState } from "./events"
+import { GitManager } from "./git-manager"
 import { createWsRouter } from "./ws-router"
 
 class FakeWebSocket {
@@ -27,6 +28,7 @@ describe("ws-router", () => {
         getSnapshot: () => ({ projectId: "project-1", rootPath: "/tmp/project-1", pageSize: 200, supportsRealtime: true }),
         onInvalidate: () => () => {},
       } as never,
+      git: new GitManager(),
       refreshDiscovery: async () => [],
       getDiscoveredProjects: () => [],
       machineDisplayName: "Local Machine",
@@ -66,6 +68,7 @@ describe("ws-router", () => {
         getSnapshot: () => ({ projectId: "project-1", rootPath: "/tmp/project-1", pageSize: 200, supportsRealtime: true }),
         onInvalidate: () => () => {},
       } as never,
+      git: new GitManager(),
       refreshDiscovery: async () => [],
       getDiscoveredProjects: () => [],
       machineDisplayName: "Local Machine",
@@ -129,6 +132,7 @@ describe("ws-router", () => {
         onEvent: () => () => {},
       } as never,
       fileTree: fileTree as never,
+      git: new GitManager(),
       refreshDiscovery: async () => [],
       getDiscoveredProjects: () => [],
       machineDisplayName: "Local Machine",

@@ -80,6 +80,9 @@ export type ClientCommand =
       cursor?: string
       limit?: number
     }
+  | { type: "git.getBranches"; projectId: string }
+  | { type: "git.switchBranch"; projectId: string; branchName: string }
+  | { type: "git.createBranch"; projectId: string; branchName: string; checkout: boolean }
 
 export type ClientEnvelope =
   | { v: 1; type: "subscribe"; id: string; topic: SubscriptionTopic }
@@ -106,6 +109,20 @@ export type ServerEnvelope =
   | { v: 1; type: "error"; id?: string; message: string }
 
 export type FileTreeReadDirectoryResult = FileTreeDirectoryPage
+
+export interface GitBranchesResult {
+  isRepo: boolean
+  currentBranch: string | null
+  branches: string[]
+}
+
+export interface GitSwitchBranchResult {
+  currentBranch: string
+}
+
+export interface GitCreateBranchResult {
+  currentBranch: string
+}
 
 export function isClientEnvelope(value: unknown): value is ClientEnvelope {
   if (!value || typeof value !== "object") return false
