@@ -3,7 +3,7 @@ import { compareVersions, parseArgs, runCli } from "./cli-runtime"
 
 function createDeps(overrides: Partial<Parameters<typeof runCli>[1]> = {}) {
   const calls = {
-    startServer: [] as Array<{ port: number; openBrowser: boolean; strictPort: boolean }>,
+    startServer: [] as Array<{ port: number; host: string; openBrowser: boolean; strictPort: boolean }>,
     fetchLatestVersion: [] as string[],
     installLatest: [] as string[],
     relaunch: [] as Array<{ command: string; args: string[] }>,
@@ -55,6 +55,7 @@ describe("parseArgs", () => {
       kind: "run",
       options: {
         port: 4000,
+        host: "127.0.0.1",
         openBrowser: false,
         strictPort: false,
       },
@@ -66,8 +67,57 @@ describe("parseArgs", () => {
       kind: "run",
       options: {
         port: 3210,
+        host: "127.0.0.1",
         openBrowser: true,
         strictPort: true,
+      },
+    })
+  })
+
+  test("--remote without value binds all interfaces", () => {
+    expect(parseArgs(["--remote"])).toEqual({
+      kind: "run",
+      options: {
+        port: 3210,
+        host: "0.0.0.0",
+        openBrowser: true,
+        strictPort: false,
+      },
+    })
+  })
+
+  test("--remote with IP binds to that address", () => {
+    expect(parseArgs(["--remote", "100.64.0.1"])).toEqual({
+      kind: "run",
+      options: {
+        port: 3210,
+        host: "100.64.0.1",
+        openBrowser: true,
+        strictPort: false,
+      },
+    })
+  })
+
+  test("--remote with hostname binds to that name", () => {
+    expect(parseArgs(["--remote", "dev-box"])).toEqual({
+      kind: "run",
+      options: {
+        port: 3210,
+        host: "dev-box",
+        openBrowser: true,
+        strictPort: false,
+      },
+    })
+  })
+
+  test("--remote followed by another flag treats it as no-value", () => {
+    expect(parseArgs(["--remote", "--no-open"])).toEqual({
+      kind: "run",
+      options: {
+        port: 3210,
+        host: "0.0.0.0",
+        openBrowser: false,
+        strictPort: false,
       },
     })
   })
@@ -107,7 +157,7 @@ describe("runCli", () => {
     expect(calls.fetchLatestVersion).toEqual(["kanna-code"])
     expect(calls.installLatest).toEqual([])
     expect(calls.relaunch).toEqual([])
-    expect(calls.startServer).toEqual([{ port: 4000, openBrowser: false, strictPort: false }])
+    expect(calls.startServer).toEqual([{ port: 4000, host: "127.0.0.1", openBrowser: false, strictPort: false }])
     expect(calls.openUrl).toEqual([])
   })
 
@@ -129,6 +179,14 @@ describe("runCli", () => {
     await runCli(["--port", "4000"], deps)
 
     expect(calls.openUrl).toEqual(["http://localhost:4000"])
+  })
+
+  test("opens browser at hostname when --remote <host> is given", async () => {
+    const { calls, deps } = createDeps()
+
+    await runCli(["--remote", "dev-box", "--port", "4000"], deps)
+
+    expect(calls.openUrl).toEqual(["http://dev-box:4000"])
   })
 
   test("installs and relaunches when a newer version is available", async () => {
