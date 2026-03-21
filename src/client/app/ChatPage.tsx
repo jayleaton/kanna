@@ -246,6 +246,8 @@ export function ChatPage() {
             void state.handleOpenExternal(action)
           }}
           editorLabel={state.editorLabel}
+          projectId={projectId ?? undefined}
+          socket={state.socket}
         />
 
         <ScrollArea

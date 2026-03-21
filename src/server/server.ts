@@ -4,6 +4,7 @@ import { EventStore } from "./event-store"
 import { AgentCoordinator } from "./agent"
 import { discoverProjects, type DiscoveredProject } from "./discovery"
 import { FileTreeManager } from "./file-tree-manager"
+import { GitManager } from "./git-manager"
 import { getMachineDisplayName } from "./machine-name"
 import { TerminalManager } from "./terminal-manager"
 import { createWsRouter, type ClientState } from "./ws-router"
@@ -33,6 +34,7 @@ export async function startKannaServer(options: StartKannaServerOptions = {}) {
   let server: ReturnType<typeof Bun.serve<ClientState>>
   let router: ReturnType<typeof createWsRouter>
   const terminals = new TerminalManager()
+  const git = new GitManager()
   const fileTree = new FileTreeManager({
     getProject: (projectId) => store.getProject(projectId),
   })
@@ -47,6 +49,7 @@ export async function startKannaServer(options: StartKannaServerOptions = {}) {
     agent,
     terminals,
     fileTree,
+    git,
     refreshDiscovery,
     getDiscoveredProjects: () => discoveredProjects,
     machineDisplayName,
