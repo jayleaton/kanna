@@ -2,6 +2,7 @@ import { query, type CanUseTool, type PermissionResult, type Query, type SDKUser
 import type {
   AgentProvider,
   ChatAttachment,
+  ChatUsageSnapshot,
   NormalizedToolCall,
   PendingToolSnapshot,
   KannaStatus,
@@ -22,6 +23,7 @@ import {
   normalizeCodexModelOptions,
   normalizeServerModel,
 } from "./provider-catalog"
+import { createClaudeRateLimitSnapshot } from "./usage"
 
 const CLAUDE_TOOLSET = [
   "Skill",
@@ -229,6 +231,18 @@ async function* createClaudeHarnessStream(q: Query): AsyncGenerator<HarnessEvent
     if (sessionToken) {
       yield { type: "session_token", sessionToken }
     }
+
+    if (sdkMessage.type === "rate_limit_event") {
+      const rateLimitInfo = sdkMessage.rate_limit_info
+      const usage = createClaudeRateLimitSnapshot(
+        typeof rateLimitInfo?.utilization === "number" ? rateLimitInfo.utilization : null,
+        typeof rateLimitInfo?.resetsAt === "number" ? rateLimitInfo.resetsAt * 1000 : null
+      )
+      if (usage) {
+        yield { type: "usage", usage }
+      }
+    }
+
     for (const entry of normalizeClaudeStreamMessage(sdkMessage)) {
       yield { type: "transcript", entry }
     }
@@ -383,6 +397,7 @@ export class AgentCoordinator {
   private readonly codexManager: CodexAppServerManager
   private readonly generateTitle: (messageContent: string, cwd: string) => Promise<string | null>
   readonly activeTurns = new Map<string, ActiveTurn>()
+  readonly liveUsage = new Map<string, ChatUsageSnapshot>()
 
   constructor(args: AgentCoordinatorArgs) {
     this.store = args.store
@@ -404,6 +419,10 @@ export class AgentCoordinator {
     const pending = this.activeTurns.get(chatId)?.pendingTool
     if (!pending) return null
     return { toolUseId: pending.toolUseId, toolKind: pending.tool.toolKind }
+  }
+
+  getLiveUsage(chatId: string) {
+    return this.liveUsage.get(chatId) ?? null
   }
 
   private resolveProvider(command: Extract<ClientCommand, { type: "chat.send" }>, currentProvider: AgentProvider | null) {
@@ -632,6 +651,12 @@ export class AgentCoordinator {
           continue
         }
 
+        if (event.type === "usage" && event.usage) {
+          this.liveUsage.set(active.chatId, event.usage)
+          this.onStateChange()
+          continue
+        }
+
         if (!event.entry) continue
         await this.store.appendMessage(active.chatId, event.entry)
 
@@ -773,6 +798,7 @@ export class AgentCoordinator {
         message?: string
       }
       if (result.confirmed && result.clearContext) {
+        this.liveUsage.delete(command.chatId)
         await this.store.setSessionToken(command.chatId, null)
         await this.store.appendMessage(command.chatId, timestamped({ kind: "context_cleared" }))
       }

@@ -28,7 +28,7 @@ export function ProjectSectionMenu({
           className="text-destructive dark:text-red-400 hover:bg-destructive/10 focus:bg-destructive/10 dark:hover:bg-red-500/20 dark:focus:bg-red-500/20"
         >
           <Trash2 className="h-4 w-4" />
-          <span className="text-xs font-medium">Remove</span>
+          <span className="text-xs font-medium">Hide</span>
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>

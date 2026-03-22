@@ -17,11 +17,19 @@ import {
 import { Button } from "../ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover"
 import { Textarea } from "../ui/textarea"
-import { cn } from "../../lib/utils"
+import { cn, generateUUID } from "../../lib/utils"
 import { useIsStandalone } from "../../hooks/useIsStandalone"
 import { useChatInputStore } from "../../stores/chatInputStore"
 import { useChatPreferencesStore } from "../../stores/chatPreferencesStore"
 import { CHAT_INPUT_ATTRIBUTE, focusNextChatInput } from "../../app/chatFocusPolicy"
+
+export function getCompactComposerLabels(args: { selectedProvider: AgentProvider; codexFastMode: boolean; planMode: boolean }) {
+  return {
+    providerText: args.selectedProvider === "codex" ? null : args.selectedProvider,
+    codexModeText: args.codexFastMode ? "Fast" : "Std",
+    planModeText: args.planMode ? "Plan" : "Access",
+  }
+}
 
 function PopoverMenuItem({
   onClick,
@@ -230,6 +238,7 @@ const ChatInputInner = forwardRef<HTMLTextAreaElement, Props>(function ChatInput
     : preferences.codex.modelOptions.reasoningEffort
   const codexFastMode = preferences.codex.modelOptions.fastMode
   const reasoningOptions = selectedProvider === "claude" ? CLAUDE_REASONING_OPTIONS : CODEX_REASONING_OPTIONS
+  const compactLabels = getCompactComposerLabels({ selectedProvider, codexFastMode, planMode })
 
   const autoResize = useCallback(() => {
     const element = textareaRef.current
@@ -343,7 +352,7 @@ const ChatInputInner = forwardRef<HTMLTextAreaElement, Props>(function ChatInput
         }
 
         next.push({
-          id: crypto.randomUUID(),
+          id: generateUUID(),
           file,
           name: file.name || "image",
           mimeType: file.type,
@@ -530,13 +539,14 @@ const ChatInputInner = forwardRef<HTMLTextAreaElement, Props>(function ChatInput
         <div className="max-w-[840px] mx-auto mt-2 px-2 text-xs text-destructive">{attachmentError}</div>
       ) : null}
 
-      <div className="flex justify-center items-center gap-0.5 max-w-[840px] mx-auto mt-2 animate-fade-in">
+      <div className="flex justify-center items-center gap-0.5 max-w-[840px] mx-auto mt-2 animate-fade-in overflow-x-auto whitespace-nowrap scrollbar-none">
         <InputPopover
           disabled={providerLocked}
           trigger={
             <>
               <ProviderIcon className="h-3.5 w-3.5" />
-              <span>{providerConfig?.label ?? selectedProvider}</span>
+              <span className="hidden sm:inline">{providerConfig?.label ?? selectedProvider}</span>
+              {compactLabels.providerText ? <span className="sm:hidden capitalize">{compactLabels.providerText}</span> : null}
             </>
           }
         >
@@ -610,7 +620,8 @@ const ChatInputInner = forwardRef<HTMLTextAreaElement, Props>(function ChatInput
             trigger={
               <>
                 {codexFastMode ? <Zap className="h-3.5 w-3.5" /> : <Gauge className="h-3.5 w-3.5" />}
-                <span>{codexFastMode ? "Fast Mode" : "Standard"}</span>
+                <span className="hidden sm:inline">{codexFastMode ? "Fast Mode" : "Standard"}</span>
+                <span className="sm:hidden">{compactLabels.codexModeText}</span>
               </>
             }
             triggerClassName={codexFastMode ? "text-emerald-500 dark:text-emerald-400" : undefined}
@@ -645,7 +656,8 @@ const ChatInputInner = forwardRef<HTMLTextAreaElement, Props>(function ChatInput
             trigger={
               <>
                 {planMode ? <ListTodo className="h-3.5 w-3.5" /> : <LockOpen className="h-3.5 w-3.5" />}
-                <span>{planMode ? "Plan Mode" : "Full Access"}</span>
+                <span className="hidden sm:inline">{planMode ? "Plan Mode" : "Full Access"}</span>
+                <span className="sm:hidden">{compactLabels.planModeText}</span>
               </>
             }
             triggerClassName={planMode ? "text-blue-400 dark:text-blue-300" : undefined}

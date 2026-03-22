@@ -6,7 +6,7 @@ import { useChatPreferencesStore } from "../stores/chatPreferencesStore"
 import { useRightSidebarStore } from "../stores/rightSidebarStore"
 import { useTerminalLayoutStore } from "../stores/terminalLayoutStore"
 import { getEditorPresetLabel, useTerminalPreferencesStore } from "../stores/terminalPreferencesStore"
-import type { ChatSnapshot, LocalProjectsSnapshot, SidebarChatRow, SidebarData } from "../../shared/types"
+import type { ChatSnapshot, ChatUsageSnapshot, LocalProjectsSnapshot, SidebarChatRow, SidebarData } from "../../shared/types"
 import type { AskUserQuestionItem } from "../components/messages/types"
 import { useAppDialog } from "../components/ui/app-dialog"
 import { processTranscriptMessages } from "../lib/parseTranscript"
@@ -18,6 +18,10 @@ export function getNewestRemainingChatId(projectGroups: SidebarData["projectGrou
   if (!projectGroup) return null
 
   return projectGroup.chats.find((chat) => chat.chatId !== activeChatId)?.chatId ?? null
+}
+
+export function getProjectIdForChat(projectGroups: SidebarData["projectGroups"], chatId: string): string | null {
+  return projectGroups.find((group) => group.chats.some((chat) => chat.chatId === chatId))?.groupKey ?? null
 }
 
 function wsUrl() {
@@ -66,6 +70,7 @@ export interface KannaState {
   messages: ReturnType<typeof processTranscriptMessages>
   latestToolIds: ReturnType<typeof getLatestToolIds>
   runtime: ChatSnapshot["runtime"] | null
+  usage: ChatUsageSnapshot | null
   availableProviders: ProviderCatalogEntry[]
   isProcessing: boolean
   canCancel: boolean
@@ -82,6 +87,7 @@ export interface KannaState {
   scrollToBottom: () => void
   handleCreateChat: (projectId: string) => Promise<void>
   handleOpenLocalProject: (localPath: string) => Promise<void>
+  handleHideLocalProject: (localPath: string) => Promise<void>
   handleCreateProject: (project: { mode: "new" | "existing"; localPath: string; title: string }) => Promise<void>
   handleSend: (message: ChatUserMessage, options?: { provider?: AgentProvider; model?: string; modelOptions?: ModelOptions; planMode?: boolean }) => Promise<void>
   handleCancel: () => Promise<void>
@@ -128,6 +134,7 @@ export function useKannaState(activeChatId: string | null): KannaState {
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLDivElement>(null)
+  const setRightSidebarVisibility = useRightSidebarStore((store) => store.setVisibility)
 
   useEffect(() => socket.onStatus(setConnectionStatus), [socket])
 
@@ -161,6 +168,13 @@ export function useKannaState(activeChatId: string | null): KannaState {
       setCommandError(null)
     })
   }, [activeChatId, socket])
+
+  useEffect(() => {
+    if (!activeChatId) return
+    const projectId = getProjectIdForChat(sidebarData.projectGroups, activeChatId)
+    if (!projectId) return
+    setRightSidebarVisibility(projectId, false)
+  }, [activeChatId, setRightSidebarVisibility, sidebarData.projectGroups])
 
   useEffect(() => {
     if (selectedProjectId) return
@@ -209,6 +223,7 @@ export function useKannaState(activeChatId: string | null): KannaState {
   const messages = useMemo(() => processTranscriptMessages(chatSnapshot?.messages ?? []), [chatSnapshot?.messages])
   const latestToolIds = useMemo(() => getLatestToolIds(messages), [messages])
   const runtime = chatSnapshot?.runtime ?? null
+  const usage = chatSnapshot?.usage ?? null
   const availableProviders = chatSnapshot?.availableProviders ?? PROVIDERS
   const isProcessing = isProcessingStatus(runtime?.status)
   const canCancel = canCancelStatus(runtime?.status)
@@ -250,6 +265,7 @@ export function useKannaState(activeChatId: string | null): KannaState {
 
   async function handleCreateChat(projectId: string) {
     try {
+      setRightSidebarVisibility(projectId, false)
       const result = await socket.command<{ chatId: string }>({ type: "chat.create", projectId })
       setSelectedProjectId(projectId)
       setPendingChatId(result.chatId)
@@ -264,6 +280,7 @@ export function useKannaState(activeChatId: string | null): KannaState {
     try {
       setStartingLocalPath(localPath)
       const result = await socket.command<{ projectId: string }>({ type: "project.open", localPath })
+      setRightSidebarVisibility(result.projectId, false)
       setSelectedProjectId(result.projectId)
       const chat = await socket.command<{ chatId: string }>({ type: "chat.create", projectId: result.projectId })
       setPendingChatId(chat.chatId)
@@ -277,6 +294,24 @@ export function useKannaState(activeChatId: string | null): KannaState {
     }
   }
 
+  async function handleHideLocalProject(localPath: string) {
+    const projectName = localPath.split("/").filter(Boolean).pop() ?? localPath
+    const confirmed = await dialog.confirm({
+      title: "Hide Project",
+      description: `Hide "${projectName}" from ${APP_NAME}? This only removes it from Kanna until you re-add it or reset local state.`,
+      confirmLabel: "Hide",
+      confirmVariant: "destructive",
+    })
+    if (!confirmed) return
+
+    try {
+      await socket.command({ type: "project.hide", localPath })
+      setCommandError(null)
+    } catch (error) {
+      setCommandError(error instanceof Error ? error.message : String(error))
+    }
+  }
+
   async function handleCreateProject(project: { mode: "new" | "existing"; localPath: string; title: string }) {
     try {
       setStartingLocalPath(project.localPath)
@@ -285,6 +320,7 @@ export function useKannaState(activeChatId: string | null): KannaState {
           ? { type: "project.create", localPath: project.localPath, title: project.title }
           : { type: "project.open", localPath: project.localPath }
       )
+      setRightSidebarVisibility(result.projectId, false)
       setSelectedProjectId(result.projectId)
       const chat = await socket.command<{ chatId: string }>({ type: "chat.create", projectId: result.projectId })
       setPendingChatId(chat.chatId)
@@ -372,9 +408,9 @@ export function useKannaState(activeChatId: string | null): KannaState {
     if (!project) return
     const projectName = project.localPath.split("/").filter(Boolean).pop() ?? project.localPath
     const confirmed = await dialog.confirm({
-      title: "Remove",
-      description: `Remove "${projectName}" from the sidebar? Existing chats will be removed from ${APP_NAME}.`,
-      confirmLabel: "Remove",
+      title: "Hide Project",
+      description: `Hide "${projectName}" from ${APP_NAME}? Existing chats for this project will be removed from Kanna, but the project itself is not deleted.`,
+      confirmLabel: "Hide",
       confirmVariant: "destructive",
     })
     if (!confirmed) return
@@ -522,6 +558,7 @@ export function useKannaState(activeChatId: string | null): KannaState {
     messages,
     latestToolIds,
     runtime,
+    usage,
     availableProviders,
     isProcessing,
     canCancel,
@@ -538,6 +575,7 @@ export function useKannaState(activeChatId: string | null): KannaState {
     scrollToBottom,
     handleCreateChat,
     handleOpenLocalProject,
+    handleHideLocalProject,
     handleCreateProject,
     handleSend,
     handleCancel,

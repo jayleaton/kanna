@@ -23,6 +23,7 @@ export interface StoreState {
   projectIdsByPath: Map<string, string>
   chatsById: Map<string, ChatRecord>
   messagesByChatId: Map<string, TranscriptEntry[]>
+  hiddenProjectPaths: Set<string>
 }
 
 export interface SnapshotFile {
@@ -31,6 +32,7 @@ export interface SnapshotFile {
   projects: ProjectRecord[]
   chats: ChatRecord[]
   messages: Array<{ chatId: string; entries: TranscriptEntry[] }>
+  hiddenProjectPaths?: string[]
 }
 
 export type ProjectEvent = {
@@ -45,6 +47,16 @@ export type ProjectEvent = {
   type: "project_removed"
   timestamp: number
   projectId: string
+} | {
+  v: 2
+  type: "project_hidden"
+  timestamp: number
+  localPath: string
+} | {
+  v: 2
+  type: "project_unhidden"
+  timestamp: number
+  localPath: string
 }
 
 export type ChatEvent =
@@ -134,6 +146,7 @@ export function createEmptyState(): StoreState {
     projectIdsByPath: new Map(),
     chatsById: new Map(),
     messagesByChatId: new Map(),
+    hiddenProjectPaths: new Set(),
   }
 }
 

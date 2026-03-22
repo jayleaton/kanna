@@ -229,6 +229,7 @@ export function ChatPage() {
           onOpenSidebar={state.openSidebar}
           onExpandSidebar={state.expandSidebar}
           onNewChat={state.handleCompose}
+          usage={state.usage}
           localPath={state.navbarLocalPath}
           embeddedTerminalVisible={showTerminalPane}
           onToggleEmbeddedTerminal={projectId

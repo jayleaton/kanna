@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { getNewestRemainingChatId, shouldPinTranscriptToBottom } from "./useKannaState"
+import { getNewestRemainingChatId, getProjectIdForChat, shouldPinTranscriptToBottom } from "./useKannaState"
 import type { SidebarData } from "../../shared/types"
 
 function createSidebarData(): SidebarData {
@@ -82,6 +82,20 @@ describe("getNewestRemainingChatId", () => {
     const sidebarData = createSidebarData()
 
     expect(getNewestRemainingChatId(sidebarData.projectGroups, "missing")).toBeNull()
+  })
+})
+
+describe("getProjectIdForChat", () => {
+  test("returns the owning project for a chat", () => {
+    const sidebarData = createSidebarData()
+
+    expect(getProjectIdForChat(sidebarData.projectGroups, "chat-2")).toBe("project-1")
+  })
+
+  test("returns null when the chat is not found", () => {
+    const sidebarData = createSidebarData()
+
+    expect(getProjectIdForChat(sidebarData.projectGroups, "missing")).toBeNull()
   })
 })
 

@@ -51,8 +51,24 @@ describe("read models", () => {
       lastTurnOutcome: null,
     })
 
-    const chat = deriveChatSnapshot(state, new Map(), "chat-1")
+    const chat = deriveChatSnapshot(state, new Map(), "chat-1", {
+      provider: "claude",
+      threadTokens: 2000,
+      contextWindowTokens: 10000,
+      contextUsedPercent: 20,
+      lastTurnTokens: 2000,
+      inputTokens: 1500,
+      outputTokens: 500,
+      cachedInputTokens: 0,
+      reasoningOutputTokens: null,
+      sessionLimitUsedPercent: 10,
+      rateLimitResetAt: null,
+      source: "live",
+      updatedAt: 1,
+      warnings: [],
+    })
     expect(chat?.runtime.provider).toBe("claude")
+    expect(chat?.usage?.threadTokens).toBe(2000)
     expect(chat?.availableProviders.length).toBeGreaterThan(1)
     expect(chat?.availableProviders.find((provider) => provider.id === "codex")?.models.map((model) => model.id)).toEqual([
       "gpt-5.4",

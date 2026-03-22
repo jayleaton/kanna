@@ -87,6 +87,9 @@ export class EventStore {
       for (const messageSet of parsed.messages) {
         this.state.messagesByChatId.set(messageSet.chatId, cloneTranscriptEntries(messageSet.entries))
       }
+      for (const localPath of parsed.hiddenProjectPaths ?? []) {
+        this.state.hiddenProjectPaths.add(resolveLocalPath(localPath))
+      }
     } catch (error) {
       console.warn(`${LOG_PREFIX} Failed to load snapshot, resetting local history:`, error)
       await this.clearStorage()
@@ -98,6 +101,7 @@ export class EventStore {
     this.state.projectIdsByPath.clear()
     this.state.chatsById.clear()
     this.state.messagesByChatId.clear()
+    this.state.hiddenProjectPaths.clear()
   }
 
   private async replayLogs() {
@@ -170,6 +174,14 @@ export class EventStore {
         project.deletedAt = event.timestamp
         project.updatedAt = event.timestamp
         this.state.projectIdsByPath.delete(project.localPath)
+        break
+      }
+      case "project_hidden": {
+        this.state.hiddenProjectPaths.add(resolveLocalPath(event.localPath))
+        break
+      }
+      case "project_unhidden": {
+        this.state.hiddenProjectPaths.delete(resolveLocalPath(event.localPath))
         break
       }
       case "chat_created": {
@@ -308,6 +320,30 @@ export class EventStore {
       type: "project_removed",
       timestamp: Date.now(),
       projectId,
+    }
+    await this.append(PROJECTS_LOG, event)
+  }
+
+  async hideProject(localPath: string) {
+    const normalized = resolveLocalPath(localPath)
+    if (this.state.hiddenProjectPaths.has(normalized)) return
+    const event: ProjectEvent = {
+      v: STORE_VERSION,
+      type: "project_hidden",
+      timestamp: Date.now(),
+      localPath: normalized,
+    }
+    await this.append(PROJECTS_LOG, event)
+  }
+
+  async unhideProject(localPath: string) {
+    const normalized = resolveLocalPath(localPath)
+    if (!this.state.hiddenProjectPaths.has(normalized)) return
+    const event: ProjectEvent = {
+      v: STORE_VERSION,
+      type: "project_unhidden",
+      timestamp: Date.now(),
+      localPath: normalized,
     }
     await this.append(PROJECTS_LOG, event)
   }
@@ -480,6 +516,10 @@ export class EventStore {
     return [...this.state.projectsById.values()].filter((project) => !project.deletedAt)
   }
 
+  isProjectHidden(localPath: string) {
+    return this.state.hiddenProjectPaths.has(resolveLocalPath(localPath))
+  }
+
   listChatsByProject(projectId: string) {
     return [...this.state.chatsById.values()]
       .filter((chat) => chat.projectId === projectId && !chat.deletedAt)
@@ -502,6 +542,7 @@ export class EventStore {
         chatId,
         entries: cloneTranscriptEntries(entries),
       })),
+      hiddenProjectPaths: [...this.state.hiddenProjectPaths.values()],
     }
 
     await Bun.write(SNAPSHOT_PATH, JSON.stringify(snapshot, null, 2))

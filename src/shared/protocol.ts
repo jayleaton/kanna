@@ -45,6 +45,7 @@ export type ClientCommand =
   | { type: "project.open"; localPath: string }
   | { type: "project.create"; localPath: string; title: string }
   | { type: "project.remove"; projectId: string }
+  | { type: "project.hide"; localPath: string }
   | { type: "system.ping" }
   | {
       type: "system.openExternal"

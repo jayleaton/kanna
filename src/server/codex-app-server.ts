@@ -692,7 +692,7 @@ export class CodexAppServerManager {
       approvalPolicy: "never",
       sandbox: "danger-full-access",
       experimentalRawEvents: false,
-      persistExtendedHistory: false,
+      persistExtendedHistory: true,
     } satisfies ThreadStartParams
 
     let response: ThreadStartResponse | ThreadResumeResponse
@@ -705,7 +705,7 @@ export class CodexAppServerManager {
           serviceTier: args.serviceTier,
           approvalPolicy: "never",
           sandbox: "danger-full-access",
-          persistExtendedHistory: false,
+          persistExtendedHistory: true,
         } satisfies ThreadResumeParams)
       } catch (error) {
         if (!isRecoverableResumeError(error)) {

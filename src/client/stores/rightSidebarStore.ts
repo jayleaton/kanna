@@ -9,6 +9,7 @@ export interface ProjectRightSidebarLayout {
 interface RightSidebarState {
   projects: Record<string, ProjectRightSidebarLayout>
   toggleVisibility: (projectId: string) => void
+  setVisibility: (projectId: string, isVisible: boolean) => void
   setSize: (projectId: string, size: number) => void
   clearProject: (projectId: string) => void
 }
@@ -25,8 +26,8 @@ function clampSize(size: number) {
 
 function createDefaultProjectLayout(): ProjectRightSidebarLayout {
   return {
-    isVisible: true,
-    size: RIGHT_SIDEBAR_MIN_SIZE_PERCENT,
+    isVisible: false,
+    size: DEFAULT_RIGHT_SIDEBAR_SIZE,
   }
 }
 
@@ -45,6 +46,16 @@ export const useRightSidebarStore = create<RightSidebarState>()(
             [projectId]: {
               ...getProjectLayout(state.projects, projectId),
               isVisible: !getProjectLayout(state.projects, projectId).isVisible,
+            },
+          },
+        })),
+      setVisibility: (projectId, isVisible) =>
+        set((state) => ({
+          projects: {
+            ...state.projects,
+            [projectId]: {
+              ...getProjectLayout(state.projects, projectId),
+              isVisible,
             },
           },
         })),
@@ -72,8 +83,8 @@ export const useRightSidebarStore = create<RightSidebarState>()(
 )
 
 export const DEFAULT_PROJECT_RIGHT_SIDEBAR_LAYOUT: ProjectRightSidebarLayout = {
-  isVisible: true,
-  size: RIGHT_SIDEBAR_MIN_SIZE_PERCENT,
+  isVisible: false,
+  size: DEFAULT_RIGHT_SIDEBAR_SIZE,
 }
 
 export function getDefaultProjectRightSidebarLayout() {

@@ -1,6 +1,7 @@
 import type {
   ChatRuntime,
   ChatSnapshot,
+  ChatUsageSnapshot,
   KannaStatus,
   LocalProjectsSnapshot,
   SidebarChatRow,
@@ -98,7 +99,8 @@ export function deriveLocalProjectsSnapshot(
 export function deriveChatSnapshot(
   state: StoreState,
   activeStatuses: Map<string, KannaStatus>,
-  chatId: string
+  chatId: string,
+  usage: ChatUsageSnapshot | null = null
 ): ChatSnapshot | null {
   const chat = state.chatsById.get(chatId)
   if (!chat || chat.deletedAt) return null
@@ -119,6 +121,7 @@ export function deriveChatSnapshot(
   return {
     runtime,
     messages: cloneTranscriptEntries(state.messagesByChatId.get(chat.id) ?? []),
+    usage,
     availableProviders: [...SERVER_PROVIDERS],
   }
 }

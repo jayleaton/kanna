@@ -538,9 +538,34 @@ export interface ChatRuntime {
   sessionToken: string | null
 }
 
+export type ChatUsageWarning =
+  | "context_warning"
+  | "context_critical"
+  | "rate_warning"
+  | "rate_critical"
+  | "stale"
+
+export interface ChatUsageSnapshot {
+  provider: AgentProvider
+  threadTokens: number | null
+  contextWindowTokens: number | null
+  contextUsedPercent: number | null
+  lastTurnTokens: number | null
+  inputTokens: number | null
+  outputTokens: number | null
+  cachedInputTokens: number | null
+  reasoningOutputTokens?: number | null
+  sessionLimitUsedPercent: number | null
+  rateLimitResetAt: number | null
+  source: "live" | "reconstructed" | "unavailable"
+  updatedAt: number | null
+  warnings: ChatUsageWarning[]
+}
+
 export interface ChatSnapshot {
   runtime: ChatRuntime
   messages: TranscriptEntry[]
+  usage?: ChatUsageSnapshot | null
   availableProviders: ProviderCatalogEntry[]
 }
 

@@ -208,4 +208,58 @@ describe("ws-router", () => {
       id: "tree-sub-1",
     })
   })
+
+  test("hides a discovered project without requiring a saved project record", async () => {
+    const hiddenPaths: string[] = []
+    const refreshed: string[] = []
+    const router = createWsRouter({
+      store: {
+        state: createEmptyState(),
+        listProjects: () => [],
+        hideProject: async (localPath: string) => {
+          hiddenPaths.push(localPath)
+        },
+      } as never,
+      agent: { cancel: async () => {}, getActiveStatuses: () => new Map() } as never,
+      terminals: {
+        getSnapshot: () => null,
+        onEvent: () => () => {},
+        closeByCwd: () => {},
+      } as never,
+      fileTree: {
+        getSnapshot: () => ({ projectId: "project-1", rootPath: "/tmp/project-1", pageSize: 200, supportsRealtime: true }),
+        onInvalidate: () => () => {},
+      } as never,
+      git: new GitManager(),
+      refreshDiscovery: async () => {
+        refreshed.push("done")
+        return []
+      },
+      getDiscoveredProjects: () => [],
+      machineDisplayName: "Local Machine",
+    })
+    const ws = new FakeWebSocket()
+
+    router.handleMessage(
+      ws as never,
+      JSON.stringify({
+        v: 1,
+        type: "command",
+        id: "project-hide-1",
+        command: { type: "project.hide", localPath: "/tmp/project-1" },
+      })
+    )
+
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(hiddenPaths).toEqual(["/tmp/project-1"])
+    expect(refreshed).toEqual(["done"])
+    expect(ws.sent).toEqual([
+      {
+        v: PROTOCOL_VERSION,
+        type: "ack",
+        id: "project-hide-1",
+      },
+    ])
+  })
 })

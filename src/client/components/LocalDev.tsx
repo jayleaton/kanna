@@ -9,8 +9,8 @@ import {
   Loader2,
   Monitor,
   Plus,
-  SquarePen,
   Terminal,
+  Trash2,
 } from "lucide-react"
 import { APP_NAME, getCliInvocation, SDK_CLIENT_APP } from "../../shared/branding"
 import type { LocalProjectsSnapshot } from "../../shared/types"
@@ -29,6 +29,7 @@ interface LocalDevProps {
   startingLocalPath: string | null
   commandError: string | null
   onOpenProject: (localPath: string) => Promise<void>
+  onHideProject: (localPath: string) => Promise<void>
   onCreateProject: (project: { mode: "new" | "existing"; localPath: string; title: string }) => Promise<void>
 }
 
@@ -129,10 +130,12 @@ function ProjectCard({
   localPath,
   loading,
   onClick,
+  onHide,
 }: {
   localPath: string
   loading: boolean
   onClick: () => void
+  onHide: () => void
 }) {
   return (
     <Tooltip>
@@ -149,11 +152,21 @@ function ProjectCard({
           <span className="font-medium text-foreground truncate flex-1">
             {getPathBasename(localPath)}
           </span>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+            disabled={loading}
+            onClick={(event) => {
+              event.stopPropagation()
+              onHide()
+            }}
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
           {loading ? (
             <Loader2 className="h-4 w-4 text-muted-foreground group-hover:text-primary animate-spin flex-shrink-0" />
-          ) : (
-            <SquarePen className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
-          )}
+          ) : null}
         </button>
       </TooltipTrigger>
       <TooltipContent>
@@ -170,6 +183,7 @@ export function LocalDev({
   startingLocalPath,
   commandError,
   onOpenProject,
+  onHideProject,
   onCreateProject,
 }: LocalDevProps) {
   const [newProjectOpen, setNewProjectOpen] = useState(false)
@@ -282,6 +296,9 @@ export function LocalDev({
                     loading={startingLocalPath === project.localPath}
                     onClick={() => {
                       void onOpenProject(project.localPath)
+                    }}
+                    onHide={() => {
+                      void onHideProject(project.localPath)
                     }}
                   />
                 ))}

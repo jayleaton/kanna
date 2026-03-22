@@ -11,6 +11,7 @@ import { GitManager } from "./git-manager"
 import { ensureProjectDirectory } from "./paths"
 import { TerminalManager } from "./terminal-manager"
 import { deriveChatSnapshot, deriveLocalProjectsSnapshot, deriveSidebarData } from "./read-models"
+import { applyThreadEstimate, mergeUsageSnapshots, reconstructClaudeUsage, reconstructCodexUsageFromFile } from "./usage"
 
 export interface ClientState {
   subscriptions: Map<string, SubscriptionTopic>
@@ -101,7 +102,20 @@ export function createWsRouter({
       id,
       snapshot: {
         type: "chat",
-        data: deriveChatSnapshot(store.state, agent.getActiveStatuses(), topic.chatId),
+        data: (() => {
+          const chat = store.getChat(topic.chatId)
+          const messages = chat ? store.getMessages(topic.chatId) : []
+          const reconstructed = !chat?.provider
+            ? null
+            : chat.provider === "codex"
+              ? (chat.sessionToken ? reconstructCodexUsageFromFile(chat.sessionToken) : null)
+              : reconstructClaudeUsage(messages, null)
+          const usage = applyThreadEstimate(
+            mergeUsageSnapshots(reconstructed, agent.getLiveUsage(topic.chatId)),
+            messages
+          )
+          return deriveChatSnapshot(store.state, agent.getActiveStatuses(), topic.chatId, usage)
+        })(),
       },
     }
   }
@@ -169,6 +183,7 @@ export function createWsRouter({
         }
         case "project.open": {
           await ensureProjectDirectory(command.localPath)
+          await store.unhideProject(command.localPath)
           const project = await store.openProject(command.localPath)
           await refreshDiscovery()
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: { projectId: project.id } })
@@ -176,6 +191,7 @@ export function createWsRouter({
         }
         case "project.create": {
           await ensureProjectDirectory(command.localPath)
+          await store.unhideProject(command.localPath)
           const project = await store.openProject(command.localPath, command.title)
           await refreshDiscovery()
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: { projectId: project.id } })
@@ -188,8 +204,24 @@ export function createWsRouter({
           }
           if (project) {
             terminals.closeByCwd(project.localPath)
+            await store.hideProject(project.localPath)
           }
           await store.removeProject(command.projectId)
+          await refreshDiscovery()
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id })
+          break
+        }
+        case "project.hide": {
+          const existingProject = store.listProjects().find((project) => project.localPath === command.localPath)
+          if (existingProject) {
+            for (const chat of store.listChatsByProject(existingProject.id)) {
+              await agent.cancel(chat.id)
+            }
+            terminals.closeByCwd(existingProject.localPath)
+            await store.removeProject(existingProject.id)
+          }
+          await store.hideProject(command.localPath)
+          await refreshDiscovery()
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id })
           break
         }
