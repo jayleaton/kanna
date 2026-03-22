@@ -136,6 +136,10 @@ function normalizeVersion(version: string) {
 }
 
 async function maybeSelfUpdate(argv: string[], deps: CliRuntimeDeps) {
+  if (process.env.KANNA_DISABLE_SELF_UPDATE === "1") {
+    return null
+  }
+
   deps.log(`${LOG_PREFIX} checking for updates`)
 
   let latestVersion: string
