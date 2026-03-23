@@ -132,15 +132,13 @@ kanna --host 100.64.x.x            # bind to a specific Tailscale IP
 
 When `--host <hostname>` is given, the browser opens `http://<hostname>:3210` automatically. Other machines on your network can connect to the same URL:
 
-```
-http://dev-box:3210
-```
-
 ## Development
 
 ```bash
 bun run dev
 ```
+
+the same `--remote` `--host` ect can be used for local development also for remote development changes
 
 Or run client and server separately:
 
