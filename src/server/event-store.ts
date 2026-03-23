@@ -341,7 +341,7 @@ export class EventStore {
       timestamp: Date.now(),
       localPath: normalized,
     }
-    await this.append(PROJECTS_LOG, event)
+    await this.append(this.projectsLogPath, event)
   }
 
   async unhideProject(localPath: string) {
@@ -353,7 +353,7 @@ export class EventStore {
       timestamp: Date.now(),
       localPath: normalized,
     }
-    await this.append(PROJECTS_LOG, event)
+    await this.append(this.projectsLogPath, event)
   }
 
   async createChat(projectId: string) {
