@@ -17,6 +17,12 @@ function getAllowedHosts() {
   }
 }
 
+function getBackendTargetHost() {
+  return process.env.KANNA_DEV_BACKEND_TARGET_HOST || "127.0.0.1"
+}
+
+const backendTargetHost = getBackendTargetHost()
+
 export default defineConfig({
   plugins: [react()],
   server: {
@@ -25,11 +31,11 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       "/ws": {
-        target: `ws://localhost:${DEV_SERVER_PORT}`,
+        target: `ws://${backendTargetHost}:${DEV_SERVER_PORT}`,
         ws: true,
       },
       "/health": {
-        target: `http://localhost:${DEV_SERVER_PORT}`,
+        target: `http://${backendTargetHost}:${DEV_SERVER_PORT}`,
       },
     },
     allowedHosts: getAllowedHosts(),

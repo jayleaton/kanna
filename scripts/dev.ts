@@ -1,4 +1,5 @@
 import process from "node:process"
+import { hostname as getHostname } from "node:os"
 import { spawn, type ChildProcess } from "node:child_process"
 import { LOG_PREFIX } from "../src/shared/branding"
 import { DEV_CLIENT_PORT, DEV_SERVER_PORT } from "../src/shared/ports"
@@ -6,26 +7,39 @@ import { DEV_CLIENT_PORT, DEV_SERVER_PORT } from "../src/shared/ports"
 const cwd = process.cwd()
 const forwardedArgs = process.argv.slice(2)
 const bunBin = process.execPath
+const localHostname = getHostname()
 
-function getAllowedDevHosts(args: string[]) {
-  const hosts = new Set<string>(["localhost", "127.0.0.1", "0.0.0.0"])
+function getDevHostConfig(args: string[]) {
+  let backendTargetHost = "127.0.0.1"
+  const hosts = new Set<string>(["localhost", "127.0.0.1", "0.0.0.0", localHostname])
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]
+    if (arg === "--remote") {
+      backendTargetHost = "127.0.0.1"
+      continue
+    }
     if (arg !== "--host") continue
 
     const next = args[index + 1]
     if (!next || next.startsWith("-")) continue
     hosts.add(next)
+    backendTargetHost = next === "0.0.0.0" ? "127.0.0.1" : next
     index += 1
   }
 
-  return [...hosts]
+  return {
+    allowedHosts: [...hosts],
+    backendTargetHost,
+  }
 }
+
+const devHostConfig = getDevHostConfig(forwardedArgs)
 
 const clientEnv = {
   ...process.env,
-  KANNA_DEV_ALLOWED_HOSTS: JSON.stringify(getAllowedDevHosts(forwardedArgs)),
+  KANNA_DEV_ALLOWED_HOSTS: JSON.stringify(devHostConfig.allowedHosts),
+  KANNA_DEV_BACKEND_TARGET_HOST: devHostConfig.backendTargetHost,
 }
 
 function spawnLabeledProcess(label: string, args: string[]) {
