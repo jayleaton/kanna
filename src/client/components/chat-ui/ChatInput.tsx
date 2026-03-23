@@ -1,11 +1,6 @@
 import { forwardRef, memo, useCallback, useEffect, useRef, useState } from "react"
 import { ArrowUp, Paperclip, X } from "lucide-react"
 import {
-  MAX_CHAT_ATTACHMENTS,
-  MAX_CHAT_IMAGE_BYTES,
-  SUPPORTED_CHAT_IMAGE_MIME_TYPES,
-import { ArrowUp } from "lucide-react"
-import {
   type AgentProvider,
   type ChatAttachmentUpload,
   type ChatUserMessage,
@@ -13,6 +8,9 @@ import {
   type CodexReasoningEffort,
   type ModelOptions,
   type ProviderCatalogEntry,
+  MAX_CHAT_ATTACHMENTS,
+  MAX_CHAT_IMAGE_BYTES,
+  SUPPORTED_CHAT_IMAGE_MIME_TYPES
 } from "../../../shared/types"
 import { Button } from "../ui/button"
 import { Textarea } from "../ui/textarea"
