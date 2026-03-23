@@ -1,5 +1,15 @@
-import { describe, expect, test } from "bun:test"
+import { afterEach, describe, expect, test } from "bun:test"
 import { compareVersions, parseArgs, runCli } from "./cli-runtime"
+
+const originalRuntimeProfile = process.env.KANNA_RUNTIME_PROFILE
+
+afterEach(() => {
+  if (originalRuntimeProfile === undefined) {
+    delete process.env.KANNA_RUNTIME_PROFILE
+  } else {
+    process.env.KANNA_RUNTIME_PROFILE = originalRuntimeProfile
+  }
+})
 
 function createDeps(overrides: Partial<Parameters<typeof runCli>[1]> = {}) {
   const calls = {
@@ -86,8 +96,8 @@ describe("parseArgs", () => {
     })
   })
 
-  test("--remote with IP binds to that address", () => {
-    expect(parseArgs(["--remote", "100.64.0.1"])).toEqual({
+  test("--host with IP binds to that address", () => {
+    expect(parseArgs(["--host", "100.64.0.1"])).toEqual({
       kind: "run",
       options: {
         port: 3210,
@@ -98,8 +108,8 @@ describe("parseArgs", () => {
     })
   })
 
-  test("--remote with hostname binds to that name", () => {
-    expect(parseArgs(["--remote", "dev-box"])).toEqual({
+  test("--host with hostname binds to that name", () => {
+    expect(parseArgs(["--host", "dev-box"])).toEqual({
       kind: "run",
       options: {
         port: 3210,
@@ -110,16 +120,9 @@ describe("parseArgs", () => {
     })
   })
 
-  test("--remote followed by another flag treats it as no-value", () => {
-    expect(parseArgs(["--remote", "--no-open"])).toEqual({
-      kind: "run",
-      options: {
-        port: 3210,
-        host: "0.0.0.0",
-        openBrowser: false,
-        strictPort: false,
-      },
-    })
+  test("--host without a value throws", () => {
+    expect(() => parseArgs(["--host"])).toThrow("Missing value for --host")
+    expect(() => parseArgs(["--host", "--no-open"])).toThrow("Missing value for --host")
   })
 
   test("returns version and help actions without running startup", () => {
@@ -159,6 +162,16 @@ describe("runCli", () => {
     expect(calls.relaunch).toEqual([])
     expect(calls.startServer).toEqual([{ port: 4000, host: "127.0.0.1", openBrowser: false, strictPort: false }])
     expect(calls.openUrl).toEqual([])
+    expect(calls.log).toContain("[kanna] data dir: ~/.kanna/data")
+  })
+
+  test("logs the dev data dir when the dev runtime profile is active", async () => {
+    process.env.KANNA_RUNTIME_PROFILE = "dev"
+    const { calls, deps } = createDeps()
+
+    await runCli(["--port", "4000", "--no-open"], deps)
+
+    expect(calls.log).toContain("[kanna] data dir: ~/.kanna-dev/data")
   })
 
   test("skips self-update in local checkout mode", async () => {
@@ -194,10 +207,10 @@ describe("runCli", () => {
     expect(calls.openUrl).toEqual(["http://localhost:4000"])
   })
 
-  test("opens browser at hostname when --remote <host> is given", async () => {
+  test("opens browser at hostname when --host <host> is given", async () => {
     const { calls, deps } = createDeps()
 
-    await runCli(["--remote", "dev-box", "--port", "4000"], deps)
+    await runCli(["--host", "dev-box", "--port", "4000"], deps)
 
     expect(calls.openUrl).toEqual(["http://dev-box:4000"])
   })

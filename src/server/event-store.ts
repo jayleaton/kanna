@@ -17,26 +17,34 @@ import {
 } from "./events"
 import { resolveLocalPath } from "./paths"
 
-const DATA_DIR = getDataDir(homedir())
-const SNAPSHOT_PATH = path.join(DATA_DIR, "snapshot.json")
-const PROJECTS_LOG = path.join(DATA_DIR, "projects.jsonl")
-const CHATS_LOG = path.join(DATA_DIR, "chats.jsonl")
-const MESSAGES_LOG = path.join(DATA_DIR, "messages.jsonl")
-const TURNS_LOG = path.join(DATA_DIR, "turns.jsonl")
 const COMPACTION_THRESHOLD_BYTES = 2 * 1024 * 1024
 
 export class EventStore {
-  readonly dataDir = DATA_DIR
+  readonly dataDir: string
   readonly state: StoreState = createEmptyState()
   private writeChain = Promise.resolve()
   private storageReset = false
+  private readonly snapshotPath: string
+  private readonly projectsLogPath: string
+  private readonly chatsLogPath: string
+  private readonly messagesLogPath: string
+  private readonly turnsLogPath: string
+
+  constructor(dataDir = getDataDir(homedir())) {
+    this.dataDir = dataDir
+    this.snapshotPath = path.join(this.dataDir, "snapshot.json")
+    this.projectsLogPath = path.join(this.dataDir, "projects.jsonl")
+    this.chatsLogPath = path.join(this.dataDir, "chats.jsonl")
+    this.messagesLogPath = path.join(this.dataDir, "messages.jsonl")
+    this.turnsLogPath = path.join(this.dataDir, "turns.jsonl")
+  }
 
   async initialize() {
-    await mkdir(DATA_DIR, { recursive: true })
-    await this.ensureFile(PROJECTS_LOG)
-    await this.ensureFile(CHATS_LOG)
-    await this.ensureFile(MESSAGES_LOG)
-    await this.ensureFile(TURNS_LOG)
+    await mkdir(this.dataDir, { recursive: true })
+    await this.ensureFile(this.projectsLogPath)
+    await this.ensureFile(this.chatsLogPath)
+    await this.ensureFile(this.messagesLogPath)
+    await this.ensureFile(this.turnsLogPath)
     await this.loadSnapshot()
     await this.replayLogs()
     if (await this.shouldCompact()) {
@@ -56,16 +64,16 @@ export class EventStore {
     this.storageReset = true
     this.resetState()
     await Promise.all([
-      Bun.write(SNAPSHOT_PATH, ""),
-      Bun.write(PROJECTS_LOG, ""),
-      Bun.write(CHATS_LOG, ""),
-      Bun.write(MESSAGES_LOG, ""),
-      Bun.write(TURNS_LOG, ""),
+      Bun.write(this.snapshotPath, ""),
+      Bun.write(this.projectsLogPath, ""),
+      Bun.write(this.chatsLogPath, ""),
+      Bun.write(this.messagesLogPath, ""),
+      Bun.write(this.turnsLogPath, ""),
     ])
   }
 
   private async loadSnapshot() {
-    const file = Bun.file(SNAPSHOT_PATH)
+    const file = Bun.file(this.snapshotPath)
     if (!(await file.exists())) return
 
     try {
@@ -106,13 +114,13 @@ export class EventStore {
 
   private async replayLogs() {
     if (this.storageReset) return
-    await this.replayLog<ProjectEvent>(PROJECTS_LOG)
+    await this.replayLog<ProjectEvent>(this.projectsLogPath)
     if (this.storageReset) return
-    await this.replayLog<ChatEvent>(CHATS_LOG)
+    await this.replayLog<ChatEvent>(this.chatsLogPath)
     if (this.storageReset) return
-    await this.replayLog<MessageEvent>(MESSAGES_LOG)
+    await this.replayLog<MessageEvent>(this.messagesLogPath)
     if (this.storageReset) return
-    await this.replayLog<TurnEvent>(TURNS_LOG)
+    await this.replayLog<TurnEvent>(this.turnsLogPath)
   }
 
   private async replayLog<TEvent extends StoreEvent>(filePath: string) {
@@ -305,7 +313,7 @@ export class EventStore {
       localPath: normalized,
       title: title?.trim() || path.basename(normalized) || normalized,
     }
-    await this.append(PROJECTS_LOG, event)
+    await this.append(this.projectsLogPath, event)
     return this.state.projectsById.get(projectId)!
   }
 
@@ -321,7 +329,7 @@ export class EventStore {
       timestamp: Date.now(),
       projectId,
     }
-    await this.append(PROJECTS_LOG, event)
+    await this.append(this.projectsLogPath, event)
   }
 
   async hideProject(localPath: string) {
@@ -362,7 +370,7 @@ export class EventStore {
       projectId,
       title: "New Chat",
     }
-    await this.append(CHATS_LOG, event)
+    await this.append(this.chatsLogPath, event)
     return this.state.chatsById.get(chatId)!
   }
 
@@ -378,7 +386,7 @@ export class EventStore {
       chatId,
       title: trimmed,
     }
-    await this.append(CHATS_LOG, event)
+    await this.append(this.chatsLogPath, event)
   }
 
   async deleteChat(chatId: string) {
@@ -389,7 +397,7 @@ export class EventStore {
       timestamp: Date.now(),
       chatId,
     }
-    await this.append(CHATS_LOG, event)
+    await this.append(this.chatsLogPath, event)
   }
 
   async setChatProvider(chatId: string, provider: AgentProvider) {
@@ -402,7 +410,7 @@ export class EventStore {
       chatId,
       provider,
     }
-    await this.append(CHATS_LOG, event)
+    await this.append(this.chatsLogPath, event)
   }
 
   async setPlanMode(chatId: string, planMode: boolean) {
@@ -415,7 +423,7 @@ export class EventStore {
       chatId,
       planMode,
     }
-    await this.append(CHATS_LOG, event)
+    await this.append(this.chatsLogPath, event)
   }
 
   async appendMessage(chatId: string, entry: TranscriptEntry) {
@@ -427,7 +435,7 @@ export class EventStore {
       chatId,
       entry,
     }
-    await this.append(MESSAGES_LOG, event)
+    await this.append(this.messagesLogPath, event)
   }
 
   async recordTurnStarted(chatId: string) {
@@ -438,7 +446,7 @@ export class EventStore {
       timestamp: Date.now(),
       chatId,
     }
-    await this.append(TURNS_LOG, event)
+    await this.append(this.turnsLogPath, event)
   }
 
   async recordTurnFinished(chatId: string) {
@@ -449,7 +457,7 @@ export class EventStore {
       timestamp: Date.now(),
       chatId,
     }
-    await this.append(TURNS_LOG, event)
+    await this.append(this.turnsLogPath, event)
   }
 
   async recordTurnFailed(chatId: string, error: string) {
@@ -461,7 +469,7 @@ export class EventStore {
       chatId,
       error,
     }
-    await this.append(TURNS_LOG, event)
+    await this.append(this.turnsLogPath, event)
   }
 
   async recordTurnCancelled(chatId: string) {
@@ -472,7 +480,7 @@ export class EventStore {
       timestamp: Date.now(),
       chatId,
     }
-    await this.append(TURNS_LOG, event)
+    await this.append(this.turnsLogPath, event)
   }
 
   async setSessionToken(chatId: string, sessionToken: string | null) {
@@ -485,7 +493,7 @@ export class EventStore {
       chatId,
       sessionToken,
     }
-    await this.append(TURNS_LOG, event)
+    await this.append(this.turnsLogPath, event)
   }
 
   getProject(projectId: string) {
@@ -545,21 +553,21 @@ export class EventStore {
       hiddenProjectPaths: [...this.state.hiddenProjectPaths.values()],
     }
 
-    await Bun.write(SNAPSHOT_PATH, JSON.stringify(snapshot, null, 2))
+    await Bun.write(this.snapshotPath, JSON.stringify(snapshot, null, 2))
     await Promise.all([
-      Bun.write(PROJECTS_LOG, ""),
-      Bun.write(CHATS_LOG, ""),
-      Bun.write(MESSAGES_LOG, ""),
-      Bun.write(TURNS_LOG, ""),
+      Bun.write(this.projectsLogPath, ""),
+      Bun.write(this.chatsLogPath, ""),
+      Bun.write(this.messagesLogPath, ""),
+      Bun.write(this.turnsLogPath, ""),
     ])
   }
 
   private async shouldCompact() {
     const sizes = await Promise.all([
-      Bun.file(PROJECTS_LOG).size,
-      Bun.file(CHATS_LOG).size,
-      Bun.file(MESSAGES_LOG).size,
-      Bun.file(TURNS_LOG).size,
+      Bun.file(this.projectsLogPath).size,
+      Bun.file(this.chatsLogPath).size,
+      Bun.file(this.messagesLogPath).size,
+      Bun.file(this.turnsLogPath).size,
     ])
     return sizes.reduce((total, size) => total + size, 0) >= COMPACTION_THRESHOLD_BYTES
   }

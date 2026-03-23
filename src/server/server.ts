@@ -4,8 +4,8 @@ import { EventStore } from "./event-store"
 import { AgentCoordinator } from "./agent"
 import { ATTACHMENTS_ROUTE_PREFIX, resolveAttachmentPath } from "./attachments"
 import { discoverProjects, type DiscoveredProject } from "./discovery"
-import { FileTreeManager } from "./file-tree-manager"
 import { GitManager } from "./git-manager"
+import { KeybindingsManager } from "./keybindings"
 import { getMachineDisplayName } from "./machine-name"
 import { TerminalManager } from "./terminal-manager"
 import { createWsRouter, type ClientState } from "./ws-router"
@@ -36,9 +36,8 @@ export async function startKannaServer(options: StartKannaServerOptions = {}) {
   let router: ReturnType<typeof createWsRouter>
   const terminals = new TerminalManager()
   const git = new GitManager()
-  const fileTree = new FileTreeManager({
-    getProject: (projectId) => store.getProject(projectId),
-  })
+  const keybindings = new KeybindingsManager()
+  await keybindings.initialize()
   const agent = new AgentCoordinator({
     store,
     onStateChange: () => {
@@ -50,8 +49,8 @@ export async function startKannaServer(options: StartKannaServerOptions = {}) {
     store,
     agent,
     terminals,
-    fileTree,
     git,
+    keybindings,
     refreshDiscovery,
     getDiscoveredProjects: () => discoveredProjects,
     machineDisplayName,
@@ -118,7 +117,7 @@ export async function startKannaServer(options: StartKannaServerOptions = {}) {
       await agent.cancel(chatId)
     }
     router.dispose()
-    fileTree.dispose()
+    keybindings.dispose()
     terminals.closeAll()
     await store.compact()
     server.stop(true)

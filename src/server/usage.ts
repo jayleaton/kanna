@@ -89,7 +89,8 @@ function relevantMessagesForCurrentContext(messages: TranscriptEntry[]) {
   return lastContextClearedIndex >= 0 ? messages.slice(lastContextClearedIndex + 1) : messages
 }
 
-function estimateTokenCountFromText(text: string) {
+function estimateTokenCountFromText(text: string | undefined | null) {
+  if (!text) return 0
   const trimmed = text.trim()
   if (!trimmed) return 0
   return Math.ceil(trimmed.length / 4)

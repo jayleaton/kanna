@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
+import type { KeybindingsSnapshot } from "../shared/types"
 import { PROTOCOL_VERSION } from "../shared/types"
 import { createEmptyState } from "./events"
 import { GitManager } from "./git-manager"
@@ -32,6 +33,18 @@ function cleanupTempDirs() {
   }
 }
 
+const DEFAULT_KEYBINDINGS_SNAPSHOT: KeybindingsSnapshot = {
+  bindings: {
+    toggleEmbeddedTerminal: ["cmd+j", "ctrl+`"],
+    toggleRightSidebar: ["ctrl+b"],
+    openInFinder: ["cmd+alt+f"],
+    openInEditor: ["cmd+shift+o"],
+    addSplitTerminal: ["cmd+shift+j"],
+  },
+  warning: null,
+  filePathDisplay: "~/.kanna/keybindings.json",
+}
+
 describe("ws-router", () => {
   test("acks system.ping without broadcasting snapshots", () => {
     const router = createWsRouter({
@@ -41,10 +54,11 @@ describe("ws-router", () => {
         getSnapshot: () => null,
         onEvent: () => () => {},
       } as never,
-      fileTree: {
-        getSnapshot: () => ({ projectId: "project-1", rootPath: "/tmp/project-1", pageSize: 200, supportsRealtime: true }),
-        onInvalidate: () => () => {},
+      keybindings: {
+        getSnapshot: () => DEFAULT_KEYBINDINGS_SNAPSHOT,
+        onChange: () => () => {},
       } as never,
+
       git: new GitManager(),
       refreshDiscovery: async () => [],
       getDiscoveredProjects: () => [],
@@ -81,10 +95,11 @@ describe("ws-router", () => {
         onEvent: () => () => {},
         write: () => {},
       } as never,
-      fileTree: {
-        getSnapshot: () => ({ projectId: "project-1", rootPath: "/tmp/project-1", pageSize: 200, supportsRealtime: true }),
-        onInvalidate: () => () => {},
+      keybindings: {
+        getSnapshot: () => DEFAULT_KEYBINDINGS_SNAPSHOT,
+        onChange: () => () => {},
       } as never,
+
       git: new GitManager(),
       refreshDiscovery: async () => [],
       getDiscoveredProjects: () => [],
@@ -116,31 +131,7 @@ describe("ws-router", () => {
     ])
   })
 
-  test("subscribes and unsubscribes file-tree topics and acks directory reads", async () => {
-    const fileTree = {
-      subscribeCalls: [] as string[],
-      unsubscribeCalls: [] as string[],
-      subscribe(projectId: string) {
-        this.subscribeCalls.push(projectId)
-      },
-      unsubscribe(projectId: string) {
-        this.unsubscribeCalls.push(projectId)
-      },
-      getSnapshot: (projectId: string) => ({
-        projectId,
-        rootPath: "/tmp/project-1",
-        pageSize: 200,
-        supportsRealtime: true as const,
-      }),
-      readDirectory: async () => ({
-        directoryPath: "",
-        entries: [],
-        nextCursor: null,
-        hasMore: false,
-      }),
-      onInvalidate: () => () => {},
-    }
-
+  test("subscribes and unsubscribes chat topics", () => {
     const router = createWsRouter({
       store: { state: createEmptyState() } as never,
       agent: { getActiveStatuses: () => new Map() } as never,
@@ -148,7 +139,11 @@ describe("ws-router", () => {
         getSnapshot: () => null,
         onEvent: () => () => {},
       } as never,
-      fileTree: fileTree as never,
+      keybindings: {
+        getSnapshot: () => DEFAULT_KEYBINDINGS_SNAPSHOT,
+        onChange: () => () => {},
+      } as never,
+
       git: new GitManager(),
       refreshDiscovery: async () => [],
       getDiscoveredProjects: () => [],
@@ -161,51 +156,18 @@ describe("ws-router", () => {
       JSON.stringify({
         v: 1,
         type: "subscribe",
-        id: "tree-sub-1",
-        topic: { type: "file-tree", projectId: "project-1" },
+        id: "chat-sub-1",
+        topic: { type: "chat", chatId: "chat-1" },
       })
     )
 
-    expect(fileTree.subscribeCalls).toEqual(["project-1"])
     expect(ws.sent[0]).toEqual({
       v: PROTOCOL_VERSION,
       type: "snapshot",
-      id: "tree-sub-1",
+      id: "chat-sub-1",
       snapshot: {
-        type: "file-tree",
-        data: {
-          projectId: "project-1",
-          rootPath: "/tmp/project-1",
-          pageSize: 200,
-          supportsRealtime: true,
-        },
-      },
-    })
-
-    router.handleMessage(
-      ws as never,
-      JSON.stringify({
-        v: 1,
-        type: "command",
-        id: "tree-read-1",
-        command: {
-          type: "file-tree.readDirectory",
-          projectId: "project-1",
-          directoryPath: "",
-        },
-      })
-    )
-
-    await Promise.resolve()
-    expect(ws.sent[1]).toEqual({
-      v: PROTOCOL_VERSION,
-      type: "ack",
-      id: "tree-read-1",
-      result: {
-        directoryPath: "",
-        entries: [],
-        nextCursor: null,
-        hasMore: false,
+        type: "chat",
+        data: null,
       },
     })
 
@@ -214,15 +176,14 @@ describe("ws-router", () => {
       JSON.stringify({
         v: 1,
         type: "unsubscribe",
-        id: "tree-sub-1",
+        id: "chat-sub-1",
       })
     )
 
-    expect(fileTree.unsubscribeCalls).toEqual(["project-1"])
-    expect(ws.sent[2]).toEqual({
+    expect(ws.sent[1]).toEqual({
       v: PROTOCOL_VERSION,
       type: "ack",
-      id: "tree-sub-1",
+      id: "chat-sub-1",
     })
   })
 
@@ -243,9 +204,9 @@ describe("ws-router", () => {
         onEvent: () => () => {},
         closeByCwd: () => {},
       } as never,
-      fileTree: {
-        getSnapshot: () => ({ projectId: "project-1", rootPath: "/tmp/project-1", pageSize: 200, supportsRealtime: true }),
-        onInvalidate: () => () => {},
+      keybindings: {
+        getSnapshot: () => DEFAULT_KEYBINDINGS_SNAPSHOT,
+        onChange: () => () => {},
       } as never,
       git: new GitManager(),
       refreshDiscovery: async () => {
@@ -278,6 +239,94 @@ describe("ws-router", () => {
         id: "project-hide-1",
       },
     ])
+  })
+
+  test("subscribes to keybindings snapshots and writes keybindings through the router", async () => {
+    const initialSnapshot: KeybindingsSnapshot = DEFAULT_KEYBINDINGS_SNAPSHOT
+    const keybindings = {
+      snapshot: initialSnapshot,
+      getSnapshot() {
+        return this.snapshot
+      },
+      onChange: () => () => {},
+      async write(bindings: KeybindingsSnapshot["bindings"]) {
+        this.snapshot = { bindings, warning: null, filePathDisplay: "~/.kanna/keybindings.json" }
+        return this.snapshot
+      },
+    }
+
+    const router = createWsRouter({
+      store: { state: createEmptyState() } as never,
+      agent: { getActiveStatuses: () => new Map() } as never,
+      terminals: {
+        getSnapshot: () => null,
+        onEvent: () => () => {},
+      } as never,
+      keybindings: keybindings as never,
+
+      git: new GitManager(),
+      refreshDiscovery: async () => [],
+      getDiscoveredProjects: () => [],
+      machineDisplayName: "Local Machine",
+    })
+    const ws = new FakeWebSocket()
+
+    router.handleMessage(
+      ws as never,
+      JSON.stringify({
+        v: 1,
+        type: "subscribe",
+        id: "keybindings-sub-1",
+        topic: { type: "keybindings" },
+      })
+    )
+
+    expect(ws.sent[0]).toEqual({
+      v: PROTOCOL_VERSION,
+      type: "snapshot",
+      id: "keybindings-sub-1",
+      snapshot: {
+        type: "keybindings",
+        data: keybindings.snapshot,
+      },
+    })
+
+    router.handleMessage(
+      ws as never,
+      JSON.stringify({
+        v: 1,
+        type: "command",
+        id: "keybindings-write-1",
+        command: {
+          type: "settings.writeKeybindings",
+          bindings: {
+            toggleEmbeddedTerminal: ["cmd+k"],
+            toggleRightSidebar: ["ctrl+shift+b"],
+            openInFinder: ["cmd+shift+g"],
+            openInEditor: ["cmd+shift+p"],
+            addSplitTerminal: ["cmd+alt+j"],
+          },
+        },
+      })
+    )
+
+    await Promise.resolve()
+    expect(ws.sent[1]).toEqual({
+      v: PROTOCOL_VERSION,
+      type: "ack",
+      id: "keybindings-write-1",
+        result: {
+          bindings: {
+            toggleEmbeddedTerminal: ["cmd+k"],
+            toggleRightSidebar: ["ctrl+shift+b"],
+            openInFinder: ["cmd+shift+g"],
+            openInEditor: ["cmd+shift+p"],
+            addSplitTerminal: ["cmd+alt+j"],
+          },
+          warning: null,
+          filePathDisplay: "~/.kanna/keybindings.json",
+        },
+      })
   })
 
   test("project.open returns the newest existing chat when the project already has history", async () => {
@@ -348,9 +397,9 @@ describe("ws-router", () => {
         getSnapshot: () => null,
         onEvent: () => () => {},
       } as never,
-      fileTree: {
-        getSnapshot: () => ({ projectId: "project-1", rootPath: "/tmp/project-1", pageSize: 200, supportsRealtime: true }),
-        onInvalidate: () => () => {},
+      keybindings: {
+        getSnapshot: () => DEFAULT_KEYBINDINGS_SNAPSHOT,
+        onChange: () => () => {},
       } as never,
       git: new GitManager(),
       refreshDiscovery: async () => [],

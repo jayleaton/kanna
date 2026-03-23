@@ -50,8 +50,9 @@ Usage:
   ${CLI_COMMAND} [options]
 
 Options:
-  --port <number>       Port to listen on (default: ${PROD_SERVER_PORT})
-  --remote [host]      Bind all interfaces (or a specific host/IP)
+  --port <number>      Port to listen on (default: ${PROD_SERVER_PORT})
+  --host <host>        Bind to a specific host or IP
+  --remote             Shortcut for --host 0.0.0.0
   --strict-port        Fail instead of trying another port
   --no-open            Don't open browser automatically
   --version            Print version and exit
@@ -79,14 +80,15 @@ export function parseArgs(argv: string[]): ParsedArgs {
       index += 1
       continue
     }
-    if (arg === "--remote") {
+    if (arg === "--host") {
       const next = argv[index + 1]
-      if (next && !next.startsWith("-")) {
-        host = next
-        index += 1
-      } else {
-        host = "0.0.0.0"
-      }
+      if (!next || next.startsWith("-")) throw new Error("Missing value for --host")
+      host = next
+      index += 1
+      continue
+    }
+    if (arg === "--remote") {
+      host = "0.0.0.0"
       continue
     }
     if (arg === "--no-open") {
@@ -137,6 +139,10 @@ function normalizeVersion(version: string) {
 }
 
 async function maybeSelfUpdate(argv: string[], deps: CliRuntimeDeps) {
+  if (process.env.KANNA_DISABLE_SELF_UPDATE === "1") {
+    return null
+  }
+
   deps.log(`${LOG_PREFIX} checking for updates`)
 
   let latestVersion: string

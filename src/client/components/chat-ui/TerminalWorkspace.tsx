@@ -3,17 +3,10 @@ import { Eraser, Plus, X } from "lucide-react"
 import type { SocketStatus, KannaSocket } from "../../app/socket"
 import { Button } from "../ui/button"
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "../ui/resizable"
+import { HotkeyTooltip, HotkeyTooltipContent, HotkeyTooltipTrigger } from "../ui/tooltip"
 import type { ProjectTerminalLayout } from "../../stores/terminalLayoutStore"
 import { TerminalPane } from "./TerminalPane"
-
-export const TERMINAL_HORIZONTAL_PADDING = 24
-export function getMinimumTerminalWidth(minColumnWidth: number) {
-  return minColumnWidth + TERMINAL_HORIZONTAL_PADDING
-}
-
-export function getMinimumTerminalWorkspaceWidth(paneCount: number, minColumnWidth: number) {
-  return Math.max(1, paneCount) * getMinimumTerminalWidth(minColumnWidth)
-}
+import { getMinimumTerminalWidth, getMinimumTerminalWorkspaceWidth } from "./TerminalWorkspaceLayout"
 
 interface Props {
   projectId: string
@@ -23,6 +16,7 @@ interface Props {
   scrollback: number
   minColumnWidth: number
   focusRequestVersion?: number
+  splitTerminalShortcut?: string[]
   onAddTerminal: (projectId: string, afterTerminalId?: string) => void
   onRemoveTerminal: (projectId: string, terminalId: string) => void
   onTerminalLayout: (projectId: string, sizes: number[]) => void
@@ -36,6 +30,7 @@ export function TerminalWorkspace({
   scrollback,
   minColumnWidth,
   focusRequestVersion = 0,
+  splitTerminalShortcut,
   onAddTerminal,
   onRemoveTerminal,
   onTerminalLayout,
@@ -144,14 +139,19 @@ export function TerminalWorkspace({
                       >
                         <Eraser className="size-3.5" />
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label="Add terminal to the right"
-                        onClick={() => onAddTerminal(projectId, terminalPane.id)}
-                      >
-                        <Plus className="size-3.5" />
-                      </Button>
+                      <HotkeyTooltip>
+                        <HotkeyTooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label="Add terminal to the right"
+                            onClick={() => onAddTerminal(projectId, terminalPane.id)}
+                          >
+                            <Plus className="size-3.5" />
+                          </Button>
+                        </HotkeyTooltipTrigger>
+                        <HotkeyTooltipContent side="bottom" shortcut={splitTerminalShortcut} />
+                      </HotkeyTooltip>
                       <Button
                         variant="ghost"
                         size="icon-sm"

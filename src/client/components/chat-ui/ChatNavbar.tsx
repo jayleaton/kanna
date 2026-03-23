@@ -4,7 +4,7 @@ import type { ChatUsageSnapshot } from "../../../shared/types"
 import { GitBranchSelector } from "./GitBranchSelector"
 import { Button } from "../ui/button"
 import { CardHeader } from "../ui/card"
-import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip"
+import { HotkeyTooltip, HotkeyTooltipContent, HotkeyTooltipTrigger, Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip"
 import { cn } from "../../lib/utils"
 
 interface Props {
@@ -22,6 +22,10 @@ interface Props {
   editorLabel?: string
   projectId?: string
   socket: KannaSocket
+  finderShortcut?: string[]
+  editorShortcut?: string[]
+  terminalShortcut?: string[]
+  rightSidebarShortcut?: string[]
 }
 
 export function ChatNavbar({
@@ -39,6 +43,10 @@ export function ChatNavbar({
   editorLabel = "Editor",
   projectId,
   socket,
+  finderShortcut,
+  editorShortcut,
+  terminalShortcut,
+  rightSidebarShortcut,
 }: Props) {
   const formatPercent = (value: number | null | undefined) => {
     if (value === null || value === undefined) return "Unavailable"
@@ -135,19 +143,24 @@ export function ChatNavbar({
           {localPath && (onOpenExternal || onToggleEmbeddedTerminal) && (
             <>
               {onOpenExternal ? (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => onOpenExternal("open_finder")}
-                  title="Open in Finder"
-                  className="border border-border/0"
-                >
-                  <FolderOpen className="h-4.5 w-4.5" />
-                </Button>
+                <HotkeyTooltip>
+                  <HotkeyTooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => onOpenExternal("open_finder")}
+                      title="Open in Finder"
+                      className="border border-border/0"
+                    >
+                      <FolderOpen className="h-4.5 w-4.5" />
+                    </Button>
+                  </HotkeyTooltipTrigger>
+                  <HotkeyTooltipContent side="bottom" shortcut={finderShortcut} />
+                </HotkeyTooltip>
               ) : null}
               {onToggleEmbeddedTerminal ? (
-                <Tooltip>
-                  <TooltipTrigger asChild>
+                <HotkeyTooltip>
+                  <HotkeyTooltipTrigger asChild>
                     <Button
                       variant="ghost"
                       size="icon"
@@ -159,26 +172,31 @@ export function ChatNavbar({
                     >
                       <Terminal className="h-4.5 w-4.5" />
                     </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">Cmd+J / Ctrl+`</TooltipContent>
-                </Tooltip>
+                  </HotkeyTooltipTrigger>
+                  <HotkeyTooltipContent side="bottom" shortcut={terminalShortcut} />
+                </HotkeyTooltip>
               ) : null}
               {onOpenExternal ? (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => onOpenExternal("open_editor")}
-                  title={`Open in ${editorLabel}`}
-                  className="border border-border/0"
-                >
-                  <Code className="h-4.5 w-4.5" />
-                </Button>
+                <HotkeyTooltip>
+                  <HotkeyTooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => onOpenExternal("open_editor")}
+                      title={`Open in ${editorLabel}`}
+                      className="border border-border/0"
+                    >
+                      <Code className="h-4.5 w-4.5" />
+                    </Button>
+                  </HotkeyTooltipTrigger>
+                  <HotkeyTooltipContent side="bottom" shortcut={editorShortcut} />
+                </HotkeyTooltip>
               ) : null}
             </>
           )}
           {onToggleRightSidebar ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
+            <HotkeyTooltip>
+              <HotkeyTooltipTrigger asChild>
                 <Button
                   variant="ghost"
                   size="icon"
@@ -190,9 +208,9 @@ export function ChatNavbar({
                 >
                   <PanelRight className="h-4.5 w-4.5" />
                 </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">Ctrl+B</TooltipContent>
-            </Tooltip>
+              </HotkeyTooltipTrigger>
+              <HotkeyTooltipContent side="bottom" shortcut={rightSidebarShortcut} />
+            </HotkeyTooltip>
           ) : null}
         </div>
       </div>
