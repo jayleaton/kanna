@@ -48,8 +48,12 @@ const DEFAULT_KEYBINDINGS_SNAPSHOT: KeybindingsSnapshot = {
 describe("ws-router", () => {
   test("acks system.ping without broadcasting snapshots", () => {
     const router = createWsRouter({
-      store: { state: createEmptyState() } as never,
-      agent: { getActiveStatuses: () => new Map() } as never,
+      store: {
+        state: createEmptyState(),
+        getChat: () => null,
+        getMessages: () => [],
+      } as never,
+      agent: { getActiveStatuses: () => new Map(), getLiveUsage: () => null } as never,
       terminals: {
         getSnapshot: () => null,
         onEvent: () => () => {},
@@ -88,8 +92,12 @@ describe("ws-router", () => {
 
   test("acks terminal.input without rebroadcasting terminal snapshots", () => {
     const router = createWsRouter({
-      store: { state: createEmptyState() } as never,
-      agent: { getActiveStatuses: () => new Map() } as never,
+      store: {
+        state: createEmptyState(),
+        getChat: () => null,
+        getMessages: () => [],
+      } as never,
+      agent: { getActiveStatuses: () => new Map(), getLiveUsage: () => null } as never,
       terminals: {
         getSnapshot: () => null,
         onEvent: () => () => {},
@@ -133,8 +141,12 @@ describe("ws-router", () => {
 
   test("subscribes and unsubscribes chat topics", () => {
     const router = createWsRouter({
-      store: { state: createEmptyState() } as never,
-      agent: { getActiveStatuses: () => new Map() } as never,
+      store: {
+        state: createEmptyState(),
+        getChat: () => null,
+        getMessages: () => [],
+      } as never,
+      agent: { getActiveStatuses: () => new Map(), getLiveUsage: () => null } as never,
       terminals: {
         getSnapshot: () => null,
         onEvent: () => () => {},
@@ -194,11 +206,13 @@ describe("ws-router", () => {
       store: {
         state: createEmptyState(),
         listProjects: () => [],
+        getChat: () => null,
+        getMessages: () => [],
         hideProject: async (localPath: string) => {
           hiddenPaths.push(localPath)
         },
       } as never,
-      agent: { cancel: async () => {}, getActiveStatuses: () => new Map() } as never,
+      agent: { cancel: async () => {}, getActiveStatuses: () => new Map(), getLiveUsage: () => null } as never,
       terminals: {
         getSnapshot: () => null,
         onEvent: () => () => {},
@@ -256,8 +270,12 @@ describe("ws-router", () => {
     }
 
     const router = createWsRouter({
-      store: { state: createEmptyState() } as never,
-      agent: { getActiveStatuses: () => new Map() } as never,
+      store: {
+        state: createEmptyState(),
+        getChat: () => null,
+        getMessages: () => [],
+      } as never,
+      agent: { getActiveStatuses: () => new Map(), getLiveUsage: () => null } as never,
       terminals: {
         getSnapshot: () => null,
         onEvent: () => () => {},
@@ -380,6 +398,8 @@ describe("ws-router", () => {
         const chat = chatState.get(chatId)
         if (chat) chat.sessionToken = sessionToken
       },
+      getChat: (chatId: string) => chatState.get(chatId) ?? null,
+      getMessages: () => [],
       appendMessage: async (chatId: string, entry: any) => {
         const chat = chatState.get(chatId)
         if (!chat) return
@@ -392,7 +412,7 @@ describe("ws-router", () => {
 
     const router = createWsRouter({
       store: store as never,
-      agent: { getActiveStatuses: () => new Map() } as never,
+      agent: { getActiveStatuses: () => new Map(), getLiveUsage: () => null } as never,
       terminals: {
         getSnapshot: () => null,
         onEvent: () => () => {},

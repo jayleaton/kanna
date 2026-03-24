@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react"
 import { useNavigate } from "react-router-dom"
 import { APP_NAME } from "../../shared/branding"
-import { PROVIDERS, type AgentProvider, type AskUserQuestionAnswerMap, type ChatUserMessage, type KeybindingsSnapshot, type ModelOptions, type ProviderCatalogEntry } from "../../shared/types"
+import { PROVIDERS, type AgentProvider, type AskUserQuestionAnswerMap, type ChatUserMessage, type FeatureStage, type KeybindingsSnapshot, type ModelOptions, type ProviderCatalogEntry } from "../../shared/types"
 import { useChatPreferencesStore } from "../stores/chatPreferencesStore"
 import { useRightSidebarStore } from "../stores/rightSidebarStore"
 import { useTerminalLayoutStore } from "../stores/terminalLayoutStore"
@@ -14,14 +14,14 @@ import { canCancelStatus, getLatestToolIds, isProcessingStatus } from "./derived
 import { KannaSocket, type SocketStatus } from "./socket"
 
 export function getNewestRemainingChatId(projectGroups: SidebarData["projectGroups"], activeChatId: string): string | null {
-  const projectGroup = projectGroups.find((group) => group.chats.some((chat) => chat.chatId === activeChatId))
+  const projectGroup = projectGroups.find((group) => flattenProjectChats(group).some((chat) => chat.chatId === activeChatId))
   if (!projectGroup) return null
 
-  return projectGroup.chats.find((chat) => chat.chatId !== activeChatId)?.chatId ?? null
+  return flattenProjectChats(projectGroup).find((chat) => chat.chatId !== activeChatId)?.chatId ?? null
 }
 
 export function getProjectIdForChat(projectGroups: SidebarData["projectGroups"], chatId: string): string | null {
-  return projectGroups.find((group) => group.chats.some((chat) => chat.chatId === chatId))?.groupKey ?? null
+  return projectGroups.find((group) => flattenProjectChats(group).some((chat) => chat.chatId === chatId))?.groupKey ?? null
 }
 
 function wsUrl() {
@@ -137,7 +137,13 @@ export interface KannaState {
   expandSidebar: () => void
   updateScrollState: () => void
   scrollToBottom: () => void
-  handleCreateChat: (projectId: string) => Promise<void>
+  handleCreateChat: (projectId: string, featureId?: string) => Promise<void>
+  handleCreateFeature: (projectId: string) => Promise<void>
+  handleRenameFeature: (featureId: string) => Promise<void>
+  handleDeleteFeature: (featureId: string) => Promise<void>
+  handleSetFeatureStage: (featureId: string, stage: FeatureStage) => Promise<void>
+  handleSetChatFeature: (chatId: string, featureId: string | null) => Promise<void>
+  handleReorderFeatures: (projectId: string, orderedFeatureIds: string[]) => Promise<void>
   handleOpenLocalProject: (localPath: string) => Promise<void>
   handleHideLocalProject: (localPath: string) => Promise<void>
   handleCreateProject: (project: ProjectRequest) => Promise<void>
@@ -256,7 +262,7 @@ export function useKannaState(activeChatId: string | null): KannaState {
   useEffect(() => {
     if (!activeChatId) return
     if (!sidebarReady || !chatReady) return
-    const exists = sidebarData.projectGroups.some((group) => group.chats.some((chat) => chat.chatId === activeChatId))
+    const exists = sidebarData.projectGroups.some((group) => flattenProjectChats(group).some((chat) => chat.chatId === activeChatId))
     if (exists) {
       if (pendingChatId === activeChatId) {
         setPendingChatId(null)
@@ -346,9 +352,9 @@ export function useKannaState(activeChatId: string | null): KannaState {
     element.scrollTo({ top: element.scrollHeight, behavior: "smooth" })
   }
 
-  async function createChatForProject(projectId: string) {
+  async function createChatForProject(projectId: string, featureId?: string) {
     useChatPreferencesStore.getState().initializeComposerForNewChat()
-    const result = await socket.command<{ chatId: string }>({ type: "chat.create", projectId })
+    const result = await socket.command<{ chatId: string }>({ type: "chat.create", projectId, featureId })
     setSelectedProjectId(projectId)
     setPendingChatId(result.chatId)
     navigate(`/chat/${result.chatId}`)
@@ -412,8 +418,112 @@ export function useKannaState(activeChatId: string | null): KannaState {
     }
   }
 
-  async function handleCreateChat(projectId: string) {
+  async function handleCreateChat(projectId: string, featureId?: string) {
+    if (featureId) {
+      try {
+        await createChatForProject(projectId, featureId)
+      } catch (error) {
+        setCommandError(error instanceof Error ? error.message : String(error))
+      }
+      return
+    }
+
     await startChatFromIntent({ kind: "project_id", projectId })
+  }
+
+  async function handleCreateFeature(projectId: string) {
+    const title = await dialog.prompt({
+      title: "Create Feature",
+      description: "Name the feature folder.",
+      placeholder: "Feature name",
+      confirmLabel: "Next",
+    })
+    if (!title) return
+
+    const description = await dialog.prompt({
+      title: "Feature Description",
+      description: "Describe what this feature is about. This will seed overview.md.",
+      placeholder: "Short feature description",
+      confirmLabel: "Create",
+    })
+    if (!description) return
+
+    try {
+      const feature = await socket.command<{ featureId: string }>({
+        type: "feature.create",
+        projectId,
+        title,
+        description,
+      })
+      await createChatForProject(projectId, feature.featureId)
+    } catch (error) {
+      setCommandError(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  async function handleRenameFeature(featureId: string) {
+    const feature = sidebarData.projectGroups.flatMap((group) => group.features).find((entry) => entry.featureId === featureId)
+    if (!feature) return
+    const title = await dialog.prompt({
+      title: "Rename Feature",
+      placeholder: "Feature name",
+      initialValue: feature.title,
+      confirmLabel: "Rename",
+    })
+    if (!title || title === feature.title) return
+
+    try {
+      await socket.command({ type: "feature.rename", featureId, title })
+      setCommandError(null)
+    } catch (error) {
+      setCommandError(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  async function handleDeleteFeature(featureId: string) {
+    const feature = sidebarData.projectGroups.flatMap((group) => group.features).find((entry) => entry.featureId === featureId)
+    if (!feature) return
+    const confirmed = await dialog.confirm({
+      title: "Delete Feature",
+      description: `Delete "${feature.title}"? Its chats will move to General and the feature folder will be removed.`,
+      confirmLabel: "Delete",
+      confirmVariant: "destructive",
+    })
+    if (!confirmed) return
+
+    try {
+      await socket.command({ type: "feature.delete", featureId })
+      setCommandError(null)
+    } catch (error) {
+      setCommandError(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  async function handleSetFeatureStage(featureId: string, stage: FeatureStage) {
+    try {
+      await socket.command({ type: "feature.setStage", featureId, stage })
+      setCommandError(null)
+    } catch (error) {
+      setCommandError(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  async function handleSetChatFeature(chatId: string, featureId: string | null) {
+    try {
+      await socket.command({ type: "chat.setFeature", chatId, featureId })
+      setCommandError(null)
+    } catch (error) {
+      setCommandError(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  async function handleReorderFeatures(projectId: string, orderedFeatureIds: string[]) {
+    try {
+      await socket.command({ type: "feature.reorder", projectId, orderedFeatureIds })
+      setCommandError(null)
+    } catch (error) {
+      setCommandError(error instanceof Error ? error.message : String(error))
+    }
   }
 
   async function handleOpenLocalProject(localPath: string) {
@@ -663,6 +773,12 @@ export function useKannaState(activeChatId: string | null): KannaState {
     updateScrollState,
     scrollToBottom,
     handleCreateChat,
+    handleCreateFeature,
+    handleRenameFeature,
+    handleDeleteFeature,
+    handleSetFeatureStage,
+    handleSetChatFeature,
+    handleReorderFeatures,
     handleOpenLocalProject,
     handleHideLocalProject,
     handleCreateProject,
@@ -677,4 +793,8 @@ export function useKannaState(activeChatId: string | null): KannaState {
     handleAskUserQuestion,
     handleExitPlanMode,
   }
+}
+
+function flattenProjectChats(projectGroup: SidebarData["projectGroups"][number]) {
+  return [...projectGroup.features.flatMap((feature) => feature.chats), ...projectGroup.generalChats]
 }

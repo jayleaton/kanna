@@ -7,6 +7,7 @@ import type {
   SidebarChatRow,
   SidebarData,
   SidebarProjectGroup,
+  SidebarFeatureRow,
 } from "../shared/types"
 import type { ChatRecord, StoreState } from "./events"
 import { cloneTranscriptEntries } from "./events"
@@ -41,12 +42,35 @@ export function deriveSidebarData(
         provider: chat.provider,
         lastMessageAt: chat.lastMessageAt,
         hasAutomation: false,
+        featureId: chat.featureId ?? null,
+      }))
+
+    const features: SidebarFeatureRow[] = [...state.featuresById.values()]
+      .filter((feature) => feature.projectId === project.id && !feature.deletedAt)
+      .sort((a, b) => {
+        const aDone = a.stage === "done" ? 1 : 0
+        const bDone = b.stage === "done" ? 1 : 0
+        if (aDone !== bDone) return aDone - bDone
+        if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder
+        return b.updatedAt - a.updatedAt
+      })
+      .map((feature) => ({
+        featureId: feature.id,
+        title: feature.title,
+        description: feature.description,
+        stage: feature.stage,
+        sortOrder: feature.sortOrder,
+        directoryRelativePath: feature.directoryRelativePath,
+        overviewRelativePath: feature.overviewRelativePath,
+        updatedAt: feature.updatedAt,
+        chats: chats.filter((chat) => chat.featureId === feature.id),
       }))
 
     return {
       groupKey: project.id,
       localPath: project.localPath,
-      chats,
+      features,
+      generalChats: chats.filter((chat) => !chat.featureId),
     }
   })
 

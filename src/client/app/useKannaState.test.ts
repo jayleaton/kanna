@@ -8,7 +8,8 @@ function createSidebarData(): SidebarData {
       {
         groupKey: "project-1",
         localPath: "/tmp/project-1",
-        chats: [
+        features: [],
+        generalChats: [
           {
             _id: "row-1",
             _creationTime: 3,
@@ -47,7 +48,8 @@ function createSidebarData(): SidebarData {
       {
         groupKey: "project-2",
         localPath: "/tmp/project-2",
-        chats: [
+        features: [],
+        generalChats: [
           {
             _id: "row-4",
             _creationTime: 1,

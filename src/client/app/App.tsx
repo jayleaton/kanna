@@ -27,8 +27,26 @@ function KannaLayout() {
         onClose={state.closeSidebar}
         onCollapse={state.collapseSidebar}
         onExpand={state.expandSidebar}
-        onCreateChat={(projectId) => {
-          void state.handleCreateChat(projectId)
+        onCreateChat={(projectId, featureId) => {
+          void state.handleCreateChat(projectId, featureId)
+        }}
+        onCreateFeature={(projectId) => {
+          void state.handleCreateFeature(projectId)
+        }}
+        onRenameFeature={(featureId) => {
+          void state.handleRenameFeature(featureId)
+        }}
+        onDeleteFeature={(featureId) => {
+          void state.handleDeleteFeature(featureId)
+        }}
+        onSetFeatureStage={(featureId, stage) => {
+          void state.handleSetFeatureStage(featureId, stage)
+        }}
+        onSetChatFeature={(chatId, featureId) => {
+          void state.handleSetChatFeature(chatId, featureId)
+        }}
+        onReorderFeatures={(projectId, orderedFeatureIds) => {
+          void state.handleReorderFeatures(projectId, orderedFeatureIds)
         }}
         onDeleteChat={(chat) => {
           void state.handleDeleteChat(chat)
@@ -36,6 +54,7 @@ function KannaLayout() {
         onRemoveProject={(projectId) => {
           void state.handleRemoveProject(projectId)
         }}
+        startingLocalPath={state.startingLocalPath}
       />
       <Outlet context={state} />
     </div>

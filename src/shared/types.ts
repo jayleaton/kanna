@@ -1,4 +1,4 @@
-export const STORE_VERSION = 2 as const
+export const STORE_VERSION = 3 as const
 export const PROTOCOL_VERSION = 1 as const
 
 export type AgentProvider = "claude" | "codex"
@@ -121,10 +121,34 @@ export type KannaStatus =
   | "waiting_for_user"
   | "failed"
 
+export const FEATURE_STAGES = ["idea", "todo", "progress", "testing", "done"] as const
+export type FeatureStage = (typeof FEATURE_STAGES)[number]
+
+export const FEATURE_STAGE_LABELS: Record<FeatureStage, string> = {
+  idea: "IDEA",
+  todo: "TODO",
+  progress: "PROGRESS",
+  testing: "TESTING",
+  done: "DONE",
+}
+
 export interface ProjectSummary {
   id: string
   localPath: string
   title: string
+  createdAt: number
+  updatedAt: number
+}
+
+export interface FeatureSummary {
+  id: string
+  projectId: string
+  title: string
+  description: string
+  stage: FeatureStage
+  sortOrder: number
+  directoryRelativePath: string
+  overviewRelativePath: string
   createdAt: number
   updatedAt: number
 }
@@ -139,12 +163,26 @@ export interface SidebarChatRow {
   provider: AgentProvider | null
   lastMessageAt?: number
   hasAutomation: boolean
+  featureId?: string | null
+}
+
+export interface SidebarFeatureRow {
+  featureId: string
+  title: string
+  description: string
+  stage: FeatureStage
+  sortOrder: number
+  directoryRelativePath: string
+  overviewRelativePath: string
+  updatedAt: number
+  chats: SidebarChatRow[]
 }
 
 export interface SidebarProjectGroup {
   groupKey: string
   localPath: string
-  chats: SidebarChatRow[]
+  features: SidebarFeatureRow[]
+  generalChats: SidebarChatRow[]
 }
 
 export interface SidebarData {

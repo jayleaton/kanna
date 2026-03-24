@@ -263,9 +263,39 @@ export function createWsRouter({
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id })
           break
         }
+        case "feature.create": {
+          const feature = await store.createFeature(command.projectId, command.title, command.description)
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: { featureId: feature.id } })
+          break
+        }
+        case "feature.rename": {
+          await store.renameFeature(command.featureId, command.title)
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id })
+          break
+        }
+        case "feature.setStage": {
+          await store.setFeatureStage(command.featureId, command.stage)
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id })
+          break
+        }
+        case "feature.reorder": {
+          await store.reorderFeatures(command.projectId, command.orderedFeatureIds)
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id })
+          break
+        }
+        case "feature.delete": {
+          await store.deleteFeature(command.featureId)
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id })
+          break
+        }
         case "chat.create": {
-          const chat = await store.createChat(command.projectId)
+          const chat = await store.createChat(command.projectId, command.featureId)
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: { chatId: chat.id } })
+          break
+        }
+        case "chat.setFeature": {
+          await store.setChatFeature(command.chatId, command.featureId)
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id })
           break
         }
         case "chat.rename": {

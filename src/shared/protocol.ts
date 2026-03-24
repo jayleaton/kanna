@@ -2,6 +2,7 @@ import type {
   AgentProvider,
   ChatUserMessage,
   ChatSnapshot,
+  FeatureStage,
   KeybindingsSnapshot,
   LocalProjectsSnapshot,
   ModelOptions,
@@ -56,7 +57,13 @@ export type ClientCommand =
       column?: number
       editor?: EditorOpenSettings
     }
-  | { type: "chat.create"; projectId: string }
+  | { type: "chat.create"; projectId: string; featureId?: string }
+  | { type: "feature.create"; projectId: string; title: string; description: string }
+  | { type: "feature.rename"; featureId: string; title: string }
+  | { type: "feature.setStage"; featureId: string; stage: FeatureStage }
+  | { type: "feature.reorder"; projectId: string; orderedFeatureIds: string[] }
+  | { type: "feature.delete"; featureId: string }
+  | { type: "chat.setFeature"; chatId: string; featureId: string | null }
   | { type: "chat.rename"; chatId: string; title: string }
   | { type: "chat.delete"; chatId: string }
   | {
