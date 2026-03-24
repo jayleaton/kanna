@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test"
-import { getActiveChatSnapshot, getNewestRemainingChatId, getProjectIdForChat, resolveComposeIntent, shouldPinTranscriptToBottom } from "./useKannaState"
+import {
+  getActiveChatSnapshot,
+  getNewestRemainingChatId,
+  getProjectIdForChat,
+  getUiUpdateRestartReconnectAction,
+  resolveComposeIntent,
+  shouldPinTranscriptToBottom,
+} from "./useKannaState"
 import type { ChatSnapshot, SidebarData } from "../../shared/types"
 
 function createSidebarData(): SidebarData {
@@ -110,6 +117,22 @@ describe("shouldPinTranscriptToBottom", () => {
 
   test("returns false when the transcript is not near the bottom", () => {
     expect(shouldPinTranscriptToBottom(120)).toBe(false)
+  })
+})
+
+describe("getUiUpdateRestartReconnectAction", () => {
+  test("waits for reconnect after the socket disconnects", () => {
+    expect(getUiUpdateRestartReconnectAction("awaiting_disconnect", "disconnected")).toBe("awaiting_reconnect")
+  })
+
+  test("navigates to changelog after reconnect", () => {
+    expect(getUiUpdateRestartReconnectAction("awaiting_reconnect", "connected")).toBe("navigate_changelog")
+  })
+
+  test("does nothing for unrelated phase and connection combinations", () => {
+    expect(getUiUpdateRestartReconnectAction(null, "connected")).toBe("none")
+    expect(getUiUpdateRestartReconnectAction("awaiting_disconnect", "connected")).toBe("none")
+    expect(getUiUpdateRestartReconnectAction("awaiting_reconnect", "disconnected")).toBe("none")
   })
 })
 

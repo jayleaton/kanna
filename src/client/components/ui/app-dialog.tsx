@@ -10,6 +10,7 @@ import {
 } from "react"
 import { Button } from "./button"
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogTitle } from "./dialog"
+import { Input } from "./input"
 
 interface ConfirmDialogOptions {
   title: string
@@ -28,9 +29,16 @@ interface PromptDialogOptions {
   cancelLabel?: string
 }
 
+interface AlertDialogOptions {
+  title: string
+  description?: string
+  closeLabel?: string
+}
+
 interface AppDialogContextValue {
   confirm: (options: ConfirmDialogOptions) => Promise<boolean>
   prompt: (options: PromptDialogOptions) => Promise<string | null>
+  alert: (options: AlertDialogOptions) => Promise<void>
 }
 
 type DialogState =
@@ -43,6 +51,11 @@ type DialogState =
       kind: "prompt"
       options: PromptDialogOptions
       resolve: (value: string | null) => void
+    }
+  | {
+      kind: "alert"
+      options: AlertDialogOptions
+      resolve: () => void
     }
 
 const AppDialogContext = createContext<AppDialogContextValue | null>(null)
@@ -70,8 +83,10 @@ export function AppDialogProvider({ children }: { children: ReactNode }) {
     if (!dialogState) return
     if (dialogState.kind === "confirm") {
       dialogState.resolve(false)
-    } else {
+    } else if (dialogState.kind === "prompt") {
       dialogState.resolve(null)
+    } else {
+      dialogState.resolve()
     }
     closeDialog()
   }, [closeDialog, dialogState])
@@ -80,8 +95,10 @@ export function AppDialogProvider({ children }: { children: ReactNode }) {
     if (!dialogState) return
     if (dialogState.kind === "confirm") {
       dialogState.resolve(true)
-    } else {
+    } else if (dialogState.kind === "prompt") {
       dialogState.resolve(inputValue.trim() || null)
+    } else {
+      dialogState.resolve()
     }
     closeDialog()
   }, [closeDialog, dialogState, inputValue])
@@ -98,7 +115,13 @@ export function AppDialogProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
-  const value = useMemo<AppDialogContextValue>(() => ({ confirm, prompt }), [confirm, prompt])
+  const alert = useCallback((options: AlertDialogOptions) => {
+    return new Promise<void>((resolve) => {
+      setDialogState({ kind: "alert", options, resolve })
+    })
+  }, [])
+
+  const value = useMemo<AppDialogContextValue>(() => ({ confirm, prompt, alert }), [alert, confirm, prompt])
 
   return (
     <AppDialogContext.Provider value={value}>
@@ -126,7 +149,7 @@ export function AppDialogProvider({ children }: { children: ReactNode }) {
                   <DialogDescription>{dialogState.options.description}</DialogDescription>
                 ) : null}
                 {dialogState.kind === "prompt" ? (
-                  <input
+                  <Input
                     ref={inputRef}
                     type="text"
                     value={inputValue}
@@ -137,7 +160,6 @@ export function AppDialogProvider({ children }: { children: ReactNode }) {
                         resolveConfirm()
                       }
                     }}
-                    className="w-full px-3 py-2 text-sm border border-border rounded-md bg-background outline-none"
                     placeholder={dialogState.options.placeholder}
                   />
                 ) : null}
@@ -147,8 +169,9 @@ export function AppDialogProvider({ children }: { children: ReactNode }) {
                   variant="ghost"
                   size="sm"
                   onClick={resolveCancel}
+                  className={dialogState.kind === "alert" ? "hidden" : undefined}
                 >
-                  {dialogState.options.cancelLabel ?? "Cancel"}
+                  {"cancelLabel" in dialogState.options ? (dialogState.options.cancelLabel ?? "Cancel") : "Cancel"}
                 </Button>
                 <Button
                   variant={dialogState.kind === "confirm" ? (dialogState.options.confirmVariant ?? "default") : "secondary"}
@@ -156,7 +179,11 @@ export function AppDialogProvider({ children }: { children: ReactNode }) {
                   onClick={resolveConfirm}
                   disabled={dialogState.kind === "prompt" && !inputValue.trim()}
                 >
-                  {dialogState.options.confirmLabel ?? "Confirm"}
+                  {dialogState.kind === "alert"
+                    ? (dialogState.options.closeLabel ?? "OK")
+                    : "confirmLabel" in dialogState.options
+                      ? (dialogState.options.confirmLabel ?? "Confirm")
+                      : "Confirm"}
                 </Button>
               </DialogFooter>
             </>

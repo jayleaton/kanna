@@ -1,16 +1,20 @@
 import { afterEach, describe, expect, test } from "bun:test"
+import { RefreshCw } from "lucide-react"
 import { renderToStaticMarkup } from "react-dom/server"
 import {
   ChangelogSection,
   buildKeybindingPayload,
   fetchGithubReleases,
   formatPublishedDate,
+  getGeneralHeaderAction,
   getCachedChangelog,
   getKeybindingsSubtitle,
+  loadChangelog,
   resetSettingsPageChangelogCache,
   resolveSettingsSectionId,
   setCachedChangelog,
 } from "./SettingsPage"
+import { SettingsHeaderButton } from "../components/ui/settings-header-button"
 
 const SAMPLE_RELEASES = [
   {
@@ -94,6 +98,20 @@ describe("changelog cache", () => {
 
     Date.now = originalNow
   })
+
+  test("force refresh bypasses the in-memory cache", async () => {
+    setCachedChangelog([SAMPLE_RELEASES[0]])
+
+    const releases = await loadChangelog({
+      force: true,
+      fetchImpl: async () => new Response(JSON.stringify([SAMPLE_RELEASES[1]]), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    })
+
+    expect(releases).toEqual([SAMPLE_RELEASES[1]])
+  })
 })
 
 describe("resolveSettingsSectionId", () => {
@@ -138,6 +156,95 @@ describe("buildKeybindingPayload", () => {
       openInEditor: ["cmd+shift+o"],
       addSplitTerminal: ["cmd+/"],
     })
+  })
+})
+
+describe("getGeneralHeaderAction", () => {
+  test("returns the check action when no update is available", () => {
+    expect(getGeneralHeaderAction(null)).toEqual({
+      disabled: false,
+      kind: "check",
+      label: "Check for updates",
+      spinning: false,
+      variant: "outline",
+    })
+  })
+
+  test("returns a disabled spinning check action while checking", () => {
+    expect(getGeneralHeaderAction({
+      currentVersion: "1.0.0",
+      latestVersion: null,
+      status: "checking",
+      updateAvailable: false,
+      lastCheckedAt: 123,
+      error: null,
+      installAction: "restart",
+    })).toEqual({
+      disabled: true,
+      kind: "check",
+      label: "Check for updates",
+      spinning: true,
+      variant: "outline",
+    })
+  })
+
+  test("returns the update action when an update is available", () => {
+    expect(getGeneralHeaderAction({
+      currentVersion: "1.0.0",
+      latestVersion: "1.1.0",
+      status: "available",
+      updateAvailable: true,
+      lastCheckedAt: 123,
+      error: null,
+      installAction: "restart",
+    })).toEqual({
+      disabled: false,
+      kind: "update",
+      label: "Update",
+      variant: "default",
+    })
+  })
+
+  test("disables the update action while updating or waiting to restart", () => {
+    expect(getGeneralHeaderAction({
+      currentVersion: "1.0.0",
+      latestVersion: "1.1.0",
+      status: "restart_pending",
+      updateAvailable: true,
+      lastCheckedAt: 123,
+      error: null,
+      installAction: "restart",
+    })).toEqual({
+      disabled: true,
+      kind: "update",
+      label: "Update",
+      variant: "default",
+    })
+  })
+})
+
+describe("SettingsHeaderButton", () => {
+  test("renders shared header button content and icon", () => {
+    const html = renderToStaticMarkup(
+      <SettingsHeaderButton icon={<RefreshCw className="size-3.5" />}>
+        Check for updates
+      </SettingsHeaderButton>
+    )
+
+    expect(html).toContain("Check for updates")
+    expect(html).toContain("lucide-refresh-cw")
+    expect(html).toContain("gap-1.5")
+  })
+
+  test("supports the default variant for the update action", () => {
+    const html = renderToStaticMarkup(
+      <SettingsHeaderButton variant="default">
+        Update now
+      </SettingsHeaderButton>
+    )
+
+    expect(html).toContain("Update now")
+    expect(html).toContain("bg-primary")
   })
 })
 

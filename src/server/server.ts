@@ -1,5 +1,5 @@
 import path from "node:path"
-import { APP_NAME } from "../shared/branding"
+import { APP_NAME, getRuntimeProfile } from "../shared/branding"
 import { EventStore } from "./event-store"
 import { AgentCoordinator } from "./agent"
 import { ATTACHMENTS_ROUTE_PREFIX, resolveAttachmentPath } from "./attachments"
@@ -8,12 +8,19 @@ import { GitManager } from "./git-manager"
 import { KeybindingsManager } from "./keybindings"
 import { getMachineDisplayName } from "./machine-name"
 import { TerminalManager } from "./terminal-manager"
+import { UpdateManager } from "./update-manager"
+import type { UpdateInstallAttemptResult } from "./cli-runtime"
 import { createWsRouter, type ClientState } from "./ws-router"
 
 export interface StartKannaServerOptions {
   port?: number
   host?: string
   strictPort?: boolean
+  update?: {
+    version: string
+    fetchLatestVersion: (packageName: string) => Promise<string>
+    installVersion: (packageName: string, version: string) => UpdateInstallAttemptResult
+  }
 }
 
 export async function startKannaServer(options: StartKannaServerOptions = {}) {
@@ -38,6 +45,14 @@ export async function startKannaServer(options: StartKannaServerOptions = {}) {
   const git = new GitManager()
   const keybindings = new KeybindingsManager()
   await keybindings.initialize()
+  const updateManager = options.update
+    ? new UpdateManager({
+      currentVersion: options.update.version,
+      fetchLatestVersion: options.update.fetchLatestVersion,
+      installVersion: options.update.installVersion,
+      devMode: getRuntimeProfile() === "dev",
+    })
+    : null
   const agent = new AgentCoordinator({
     store,
     onStateChange: () => {
@@ -54,6 +69,7 @@ export async function startKannaServer(options: StartKannaServerOptions = {}) {
     refreshDiscovery,
     getDiscoveredProjects: () => discoveredProjects,
     machineDisplayName,
+    updateManager,
   })
 
   const distDir = path.join(import.meta.dir, "..", "..", "dist", "client")
@@ -126,6 +142,7 @@ export async function startKannaServer(options: StartKannaServerOptions = {}) {
   return {
     port: actualPort,
     store,
+    updateManager,
     stop: shutdown,
   }
 }
