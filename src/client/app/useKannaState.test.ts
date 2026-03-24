@@ -3,6 +3,7 @@ import {
   getActiveChatSnapshot,
   getNewestRemainingChatId,
   getProjectIdForChat,
+  getTranscriptPaddingBottom,
   getUiUpdateRestartReconnectAction,
   resolveComposeIntent,
   shouldPinTranscriptToBottom,
@@ -121,6 +122,16 @@ describe("shouldPinTranscriptToBottom", () => {
 
   test("returns false when the transcript is not near the bottom", () => {
     expect(shouldPinTranscriptToBottom(120)).toBe(false)
+  })
+})
+
+describe("getTranscriptPaddingBottom", () => {
+  test("keeps a minimum spacer when the composer has not been measured yet", () => {
+    expect(getTranscriptPaddingBottom(0)).toBe(136)
+  })
+
+  test("tracks the measured composer height once it grows past the minimum", () => {
+    expect(getTranscriptPaddingBottom(160)).toBe(184)
   })
 })
 

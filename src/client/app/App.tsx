@@ -8,6 +8,7 @@ import { ChatPage } from "./ChatPage"
 import { LocalProjectsPage } from "./LocalProjectsPage"
 import { SettingsPage } from "./SettingsPage"
 import { useKannaState } from "./useKannaState"
+import { useViewportCssVars } from "./useViewportCssVars"
 
 const VERSION_SEEN_STORAGE_KEY = "kanna:last-seen-version"
 
@@ -22,6 +23,7 @@ function KannaLayout() {
   const state = useKannaState(params.chatId ?? null)
   const showMobileOpenButton = location.pathname === "/" || location.pathname.startsWith("/settings")
   const currentVersion = SDK_CLIENT_APP.split("/")[1] ?? "unknown"
+  useViewportCssVars()
 
   useEffect(() => {
     const seenVersion = window.localStorage.getItem(VERSION_SEEN_STORAGE_KEY)
@@ -32,7 +34,10 @@ function KannaLayout() {
   }, [currentVersion, location.pathname, navigate])
 
   return (
-    <div className="flex h-[100dvh] min-h-[100dvh] overflow-hidden">
+    <div
+      className="relative flex h-[var(--app-shell-height)] min-h-[var(--app-shell-height)] overflow-hidden"
+      style={{ top: "var(--app-shell-offset-top)" }}
+    >
       <KannaSidebar
         data={state.sidebarData}
         activeChatId={state.activeChatId}

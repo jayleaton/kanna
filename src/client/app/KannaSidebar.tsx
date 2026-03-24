@@ -38,6 +38,10 @@ interface KannaSidebarProps {
   onInstallUpdate: () => void
 }
 
+export function shouldCloseSidebarOnChatSelect(open: boolean) {
+  return open
+}
+
 export function KannaSidebar({
   data,
   activeChatId,
@@ -123,6 +127,13 @@ export function KannaSidebar({
     })
   }, [])
 
+  const handleSelectChat = useCallback((chatId: string) => {
+    navigate(`/chat/${chatId}`)
+    if (shouldCloseSidebarOnChatSelect(open)) {
+      onClose()
+    }
+  }, [navigate, onClose, open])
+
   const renderChatRow = useCallback((chat: SidebarChatRow, options?: {
     draggable?: boolean
     onDragStart?: (chat: SidebarChatRow) => void
@@ -133,13 +144,13 @@ export function KannaSidebar({
       chat={chat}
       activeChatId={activeChatId}
       nowMs={nowMs}
-      onSelectChat={(chatId) => navigate(`/chat/${chatId}`)}
+      onSelectChat={handleSelectChat}
       onDeleteChat={() => onDeleteChat(chat)}
       draggable={options?.draggable}
       onDragStart={options?.onDragStart}
       onDragEnd={options?.onDragEnd}
     />
-  ), [activeChatId, navigate, nowMs, onDeleteChat])
+  ), [activeChatId, handleSelectChat, nowMs, onDeleteChat])
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {

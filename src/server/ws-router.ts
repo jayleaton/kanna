@@ -373,7 +373,15 @@ export function createWsRouter({
           break
         }
         case "chat.create": {
-          const chat = await store.createChat(command.projectId, command.featureId)
+          // Reuse an existing empty chat for this project+feature if one exists
+          const existingChats = store.listChatsByProject(command.projectId)
+          const emptyChat = existingChats.find((chat) => {
+            if (chat.lastMessageAt != null) return false
+            const chatFeatureId = chat.featureId ?? undefined
+            return chatFeatureId === (command.featureId ?? undefined)
+          })
+
+          const chat = emptyChat ?? await store.createChat(command.projectId, command.featureId)
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: { chatId: chat.id } })
           break
         }

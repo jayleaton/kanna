@@ -778,4 +778,246 @@ describe("ws-router", () => {
       },
     ])
   })
+
+  describe("chat.create reuses empty chats", () => {
+    function createChatTestRouter(chatState: Map<string, {
+      id: string
+      projectId: string
+      provider: "claude" | "codex" | null
+      sessionToken: string | null
+      title: string
+      updatedAt: number
+      lastMessageAt?: number
+      featureId?: string | null
+    }>) {
+      const store = {
+        state: createEmptyState(),
+        getChat: (chatId: string) => chatState.get(chatId) ?? null,
+        listChatsByProject: (projectId: string) =>
+          [...chatState.values()]
+            .filter((chat) => chat.projectId === projectId)
+            .sort((a, b) => (b.lastMessageAt ?? b.updatedAt) - (a.lastMessageAt ?? a.updatedAt)),
+        createChat: async (projectId: string, featureId?: string) => {
+          const next = {
+            id: `chat-${chatState.size + 1}`,
+            projectId,
+            provider: null as null,
+            sessionToken: null as null,
+            title: "New Chat",
+            updatedAt: Date.now(),
+            ...(featureId ? { featureId } : {}),
+          }
+          chatState.set(next.id, next)
+          return next
+        },
+      }
+
+      const router = createWsRouter({
+        store: store as never,
+        agent: { getActiveStatuses: () => new Map(), getLiveUsage: () => null } as never,
+        terminals: {
+          getSnapshot: () => null,
+          onEvent: () => () => {},
+        } as never,
+        keybindings: {
+          getSnapshot: () => DEFAULT_KEYBINDINGS_SNAPSHOT,
+          onChange: () => () => {},
+        } as never,
+        git: new GitManager(),
+        refreshDiscovery: async () => [],
+        getDiscoveredProjects: () => [],
+        machineDisplayName: "Local Machine",
+        updateManager: null,
+      })
+
+      return { router, store }
+    }
+
+    test("reuses existing empty general chat", async () => {
+      const chatState = new Map()
+      chatState.set("chat-empty", {
+        id: "chat-empty",
+        projectId: "project-1",
+        provider: null,
+        sessionToken: null,
+        title: "New Chat",
+        updatedAt: 100,
+      })
+
+      const { router } = createChatTestRouter(chatState)
+      const ws = new FakeWebSocket()
+
+      router.handleMessage(
+        ws as never,
+        JSON.stringify({
+          v: 1,
+          type: "command",
+          id: "create-1",
+          command: { type: "chat.create", projectId: "project-1" },
+        })
+      )
+
+      await new Promise((resolve) => setTimeout(resolve, 25))
+
+      expect(ws.sent).toEqual([
+        { v: PROTOCOL_VERSION, type: "ack", id: "create-1", result: { chatId: "chat-empty" } },
+      ])
+      expect(chatState.size).toBe(1)
+    })
+
+    test("creates new chat when existing chat has messages", async () => {
+      const chatState = new Map()
+      chatState.set("chat-used", {
+        id: "chat-used",
+        projectId: "project-1",
+        provider: null,
+        sessionToken: null,
+        title: "Used Chat",
+        updatedAt: 100,
+        lastMessageAt: 100,
+      })
+
+      const { router } = createChatTestRouter(chatState)
+      const ws = new FakeWebSocket()
+
+      router.handleMessage(
+        ws as never,
+        JSON.stringify({
+          v: 1,
+          type: "command",
+          id: "create-1",
+          command: { type: "chat.create", projectId: "project-1" },
+        })
+      )
+
+      await new Promise((resolve) => setTimeout(resolve, 25))
+
+      expect(ws.sent).toEqual([
+        { v: PROTOCOL_VERSION, type: "ack", id: "create-1", result: { chatId: "chat-2" } },
+      ])
+      expect(chatState.size).toBe(2)
+    })
+
+    test("reuses empty feature chat with matching featureId", async () => {
+      const chatState = new Map()
+      chatState.set("chat-feature-empty", {
+        id: "chat-feature-empty",
+        projectId: "project-1",
+        provider: null,
+        sessionToken: null,
+        title: "New Chat",
+        updatedAt: 100,
+        featureId: "feature-1",
+      })
+
+      const { router } = createChatTestRouter(chatState)
+      const ws = new FakeWebSocket()
+
+      router.handleMessage(
+        ws as never,
+        JSON.stringify({
+          v: 1,
+          type: "command",
+          id: "create-1",
+          command: { type: "chat.create", projectId: "project-1", featureId: "feature-1" },
+        })
+      )
+
+      await new Promise((resolve) => setTimeout(resolve, 25))
+
+      expect(ws.sent).toEqual([
+        { v: PROTOCOL_VERSION, type: "ack", id: "create-1", result: { chatId: "chat-feature-empty" } },
+      ])
+      expect(chatState.size).toBe(1)
+    })
+
+    test("does not reuse empty chat from a different feature", async () => {
+      const chatState = new Map()
+      chatState.set("chat-feature-1", {
+        id: "chat-feature-1",
+        projectId: "project-1",
+        provider: null,
+        sessionToken: null,
+        title: "New Chat",
+        updatedAt: 100,
+        featureId: "feature-1",
+      })
+
+      const { router } = createChatTestRouter(chatState)
+      const ws = new FakeWebSocket()
+
+      router.handleMessage(
+        ws as never,
+        JSON.stringify({
+          v: 1,
+          type: "command",
+          id: "create-1",
+          command: { type: "chat.create", projectId: "project-1", featureId: "feature-2" },
+        })
+      )
+
+      await new Promise((resolve) => setTimeout(resolve, 25))
+
+      expect(ws.sent).toEqual([
+        { v: PROTOCOL_VERSION, type: "ack", id: "create-1", result: { chatId: "chat-2" } },
+      ])
+      expect(chatState.size).toBe(2)
+    })
+
+    test("does not reuse empty general chat for feature request", async () => {
+      const chatState = new Map()
+      chatState.set("chat-general", {
+        id: "chat-general",
+        projectId: "project-1",
+        provider: null,
+        sessionToken: null,
+        title: "New Chat",
+        updatedAt: 100,
+      })
+
+      const { router } = createChatTestRouter(chatState)
+      const ws = new FakeWebSocket()
+
+      router.handleMessage(
+        ws as never,
+        JSON.stringify({
+          v: 1,
+          type: "command",
+          id: "create-1",
+          command: { type: "chat.create", projectId: "project-1", featureId: "feature-1" },
+        })
+      )
+
+      await new Promise((resolve) => setTimeout(resolve, 25))
+
+      expect(ws.sent).toEqual([
+        { v: PROTOCOL_VERSION, type: "ack", id: "create-1", result: { chatId: "chat-2" } },
+      ])
+      expect(chatState.size).toBe(2)
+    })
+
+    test("creates new chat when no chats exist", async () => {
+      const chatState = new Map()
+
+      const { router } = createChatTestRouter(chatState)
+      const ws = new FakeWebSocket()
+
+      router.handleMessage(
+        ws as never,
+        JSON.stringify({
+          v: 1,
+          type: "command",
+          id: "create-1",
+          command: { type: "chat.create", projectId: "project-1" },
+        })
+      )
+
+      await new Promise((resolve) => setTimeout(resolve, 25))
+
+      expect(ws.sent).toEqual([
+        { v: PROTOCOL_VERSION, type: "ack", id: "create-1", result: { chatId: "chat-1" } },
+      ])
+      expect(chatState.size).toBe(1)
+    })
+  })
 })

@@ -68,6 +68,10 @@ export function shouldPinTranscriptToBottom(distanceFromBottom: number) {
   return distanceFromBottom < 120
 }
 
+export function getTranscriptPaddingBottom(inputHeight: number) {
+  return Math.max(136, Math.round(inputHeight + 24))
+}
+
 export function getUiUpdateRestartReconnectAction(
   phase: string | null,
   connectionStatus: SocketStatus
@@ -83,7 +87,6 @@ export function getUiUpdateRestartReconnectAction(
   return "none"
 }
 
-const FIXED_TRANSCRIPT_PADDING_BOTTOM = 320
 const UI_UPDATE_RESTART_STORAGE_KEY = "kanna:ui-update-restart"
 
 function getUiUpdateRestartPhase() {
@@ -406,7 +409,7 @@ export function useKannaState(activeChatId: string | null): KannaState {
   const availableProviders = activeChatSnapshot?.availableProviders ?? PROVIDERS
   const isProcessing = isProcessingStatus(runtime?.status)
   const canCancel = canCancelStatus(runtime?.status)
-  const transcriptPaddingBottom = FIXED_TRANSCRIPT_PADDING_BOTTOM
+  const transcriptPaddingBottom = getTranscriptPaddingBottom(inputHeight)
   const showScrollButton = !isAtBottom && messages.length > 0
   const fallbackLocalProjectPath = localProjects?.projects[0]?.localPath ?? null
   const navbarLocalPath =
@@ -444,6 +447,23 @@ export function useKannaState(activeChatId: string | null): KannaState {
 
   async function createChatForProject(projectId: string, featureId?: string) {
     useChatPreferencesStore.getState().initializeComposerForNewChat()
+
+    // Reuse an existing empty chat for this project+feature instead of creating duplicates
+    const projectGroup = sidebarData.projectGroups.find((g) => g.groupKey === projectId)
+    if (projectGroup) {
+      const chats = featureId
+        ? projectGroup.features.find((f) => f.featureId === featureId)?.chats ?? []
+        : projectGroup.generalChats
+      const emptyChat = chats.find((chat) => chat.lastMessageAt == null)
+      if (emptyChat) {
+        setSelectedProjectId(projectId)
+        navigate(`/chat/${emptyChat.chatId}`)
+        setSidebarOpen(false)
+        setCommandError(null)
+        return
+      }
+    }
+
     const result = await socket.command<{ chatId: string }>({ type: "chat.create", projectId, featureId })
     setSelectedProjectId(projectId)
     setPendingChatId(result.chatId)

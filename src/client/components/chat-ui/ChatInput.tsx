@@ -442,7 +442,10 @@ const ChatInputInner = forwardRef<HTMLTextAreaElement, Props>(function ChatInput
     }
   }
   return (
-    <div className={cn("p-3 pt-0 md:pb-2", isStandalone && "px-5 pb-5")}>
+    <div
+      className={cn("p-3 pt-0 md:pb-2", isStandalone && "px-5")}
+      style={isStandalone ? { paddingBottom: "var(--app-composer-bottom-padding)" } : undefined}
+    >
       <div
         className={cn(
           "max-w-[840px] mx-auto border dark:bg-card/40 backdrop-blur-lg border-border rounded-[29px] px-2 pb-2 transition-colors",

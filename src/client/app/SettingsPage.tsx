@@ -1023,22 +1023,30 @@ export function SettingsPage() {
       {showFooter ? (
         <div className="absolute bottom-0 left-0 right-0 border-t border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
           <div className="px-6 py-[14.25px]">
-            <div className="grid gap-3 text-xs text-muted-foreground sm:grid-cols-2 lg:grid-cols-4">
-              <div>
-                <div className="mb-1 uppercase tracking-wide text-[11px] text-muted-foreground/80">Machine</div>
-                <div className="text-foreground/80">{machineName}</div>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs text-muted-foreground lg:grid-cols-4 lg:gap-3">
+              <div className="min-w-0">
+                <div className="flex items-baseline gap-1.5 lg:block">
+                  <div className="uppercase tracking-wide text-[11px] text-muted-foreground/80 lg:mb-1">Machine</div>
+                  <div className="truncate text-foreground/80">{machineName}</div>
+                </div>
               </div>
-              <div>
-                <div className="mb-1 uppercase tracking-wide text-[11px] text-muted-foreground/80">Connection</div>
-                <div className="text-foreground/80">{state.connectionStatus}</div>
+              <div className="min-w-0">
+                <div className="flex items-baseline gap-1.5 lg:block">
+                  <div className="uppercase tracking-wide text-[11px] text-muted-foreground/80 lg:mb-1">Connection</div>
+                  <div className="truncate text-foreground/80">{state.connectionStatus}</div>
+                </div>
               </div>
-              <div>
-                <div className="mb-1 uppercase tracking-wide text-[11px] text-muted-foreground/80">Projects Indexed</div>
-                <div className="text-foreground/80">{projectCount}</div>
+              <div className="min-w-0">
+                <div className="flex items-baseline gap-1.5 lg:block">
+                  <div className="uppercase tracking-wide text-[11px] text-muted-foreground/80 lg:mb-1">Projects</div>
+                  <div className="truncate text-foreground/80">{projectCount}</div>
+                </div>
               </div>
-              <div>
-                <div className="mb-1 uppercase tracking-wide text-[11px] text-muted-foreground/80">App Version</div>
-                <div className="text-foreground/80">{appVersion}</div>
+              <div className="min-w-0">
+                <div className="flex items-baseline gap-1.5 lg:block">
+                  <div className="uppercase tracking-wide text-[11px] text-muted-foreground/80 lg:mb-1">Version</div>
+                  <div className="truncate text-foreground/80">{appVersion}</div>
+                </div>
               </div>
             </div>
           </div>

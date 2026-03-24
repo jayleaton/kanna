@@ -45,7 +45,7 @@ export default defineConfig({
         target: `http://${backendTargetHost}:${DEV_SERVER_PORT}`,
       },
     },
-    allowedHosts: getAllowedHosts(),
+    allowedHosts: true,
   },
   build: {
     outDir: "dist/client",
