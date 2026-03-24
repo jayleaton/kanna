@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom"
 import { APP_NAME } from "../../shared/branding"
 import { PROVIDERS, type AgentProvider, type AskUserQuestionAnswerMap, type ChatUserMessage, type DirectoryBrowserSnapshot, type FeatureStage, type KeybindingsSnapshot, type ModelOptions, type ProviderCatalogEntry, type UpdateInstallResult, type UpdateSnapshot } from "../../shared/types"
 import { useChatPreferencesStore } from "../stores/chatPreferencesStore"
+import { useFeatureSettingsStore } from "../stores/featureSettingsStore"
 import { useRightSidebarStore } from "../stores/rightSidebarStore"
 import { useTerminalLayoutStore } from "../stores/terminalLayoutStore"
 import { getEditorPresetLabel, useTerminalPreferencesStore } from "../stores/terminalPreferencesStore"
@@ -22,6 +23,14 @@ export function getNewestRemainingChatId(projectGroups: SidebarData["projectGrou
 
 export function getProjectIdForChat(projectGroups: SidebarData["projectGroups"], chatId: string): string | null {
   return projectGroups.find((group) => flattenProjectChats(group).some((chat) => chat.chatId === chatId))?.groupKey ?? null
+}
+
+export function getSidebarChat(projectGroups: SidebarData["projectGroups"], chatId: string): SidebarChatRow | null {
+  for (const group of projectGroups) {
+    const chat = flattenProjectChats(group).find((entry) => entry.chatId === chatId)
+    if (chat) return chat
+  }
+  return null
 }
 
 function wsUrl() {
@@ -144,6 +153,8 @@ export interface KannaState {
   localProjectsReady: boolean
   commandError: string | null
   startingLocalPath: string | null
+  folderGroupsEnabled: boolean
+  kanbanStatusesEnabled: boolean
   sidebarOpen: boolean
   sidebarCollapsed: boolean
   scrollRef: RefObject<HTMLDivElement | null>
@@ -179,6 +190,7 @@ export interface KannaState {
   handleCreateProject: (project: ProjectRequest) => Promise<void>
   handleCheckForUpdates: (options?: { force?: boolean }) => Promise<void>
   handleInstallUpdate: () => Promise<void>
+  handleSetCommitKannaDirectory: (enabled: boolean) => Promise<void>
   handleSend: (message: ChatUserMessage, options?: { provider?: AgentProvider; model?: string; modelOptions?: ModelOptions; planMode?: boolean }) => Promise<void>
   handleCancel: () => Promise<void>
   handleDeleteChat: (chat: SidebarChatRow) => Promise<void>
@@ -222,6 +234,8 @@ export function useKannaState(activeChatId: string | null): KannaState {
   const [commandError, setCommandError] = useState<string | null>(null)
   const [startingLocalPath, setStartingLocalPath] = useState<string | null>(null)
   const [pendingChatId, setPendingChatId] = useState<string | null>(null)
+  const folderGroupsEnabled = useFeatureSettingsStore((store) => store.folderGroupsEnabled)
+  const kanbanStatusesEnabled = useFeatureSettingsStore((store) => store.kanbanStatusesEnabled)
   const editorLabel = getEditorPresetLabel(useTerminalPreferencesStore((store) => store.editorPreset))
 
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -438,6 +452,18 @@ export function useKannaState(activeChatId: string | null): KannaState {
     setCommandError(null)
   }
 
+  async function applyKannaDirectoryCommitPreference(
+    target: { projectId?: string; localPath?: string },
+    enabled = useFeatureSettingsStore.getState().commitKannaDirectory
+  ) {
+    await socket.command({
+      type: "project.setKannaDirectoryCommitMode",
+      projectId: target.projectId,
+      localPath: target.localPath,
+      commitKanna: enabled,
+    })
+  }
+
   async function resolveProjectIdForStartChat(intent: StartChatIntent): Promise<{ projectId: string; localPath?: string }> {
     if (intent.kind === "project_id") {
       return { projectId: intent.projectId }
@@ -468,6 +494,7 @@ export function useKannaState(activeChatId: string | null): KannaState {
       }
 
       const { projectId } = await resolveProjectIdForStartChat(intent)
+      await applyKannaDirectoryCommitPreference({ projectId })
       await createChatForProject(projectId)
     } catch (error) {
       setCommandError(error instanceof Error ? error.message : String(error))
@@ -608,6 +635,25 @@ export function useKannaState(activeChatId: string | null): KannaState {
 
   async function handleCreateProject(project: ProjectRequest) {
     await startChatFromIntent({ kind: "project_request", project })
+  }
+
+  async function handleSetCommitKannaDirectory(enabled: boolean) {
+    try {
+      await Promise.all(
+        dedupeCommitPreferenceTargets(
+          localProjects?.projects.map((project) => ({
+            localPath: project.localPath,
+          })) ?? sidebarData.projectGroups.map((group) => ({
+            projectId: group.groupKey,
+            localPath: group.localPath,
+          }))
+        ).map((target) => applyKannaDirectoryCommitPreference(target, enabled))
+      )
+      setCommandError(null)
+    } catch (error) {
+      setCommandError(error instanceof Error ? error.message : String(error))
+      throw error
+    }
   }
 
   async function handleListDirectories(localPath?: string) {
@@ -825,17 +871,27 @@ export function useKannaState(activeChatId: string | null): KannaState {
   }
 
   function handleCompose() {
+    const activeSidebarChat = activeChatId ? getSidebarChat(sidebarData.projectGroups, activeChatId) : null
+    const activeProjectId = activeChatId ? getProjectIdForChat(sidebarData.projectGroups, activeChatId) : null
+
+    if (activeSidebarChat && activeProjectId) {
+      setCommandError(null)
+      void handleCreateChat(activeProjectId, activeSidebarChat.featureId ?? undefined)
+      return
+    }
+
     const intent = resolveComposeIntent({
       selectedProjectId,
       sidebarProjectId: sidebarData.projectGroups[0]?.groupKey,
       fallbackLocalProjectPath,
     })
     if (intent) {
+      setCommandError(null)
       void startChatFromIntent(intent)
       return
     }
 
-    navigate("/")
+    setCommandError("Open a project first")
   }
 
   async function handleAskUserQuestion(
@@ -890,6 +946,8 @@ export function useKannaState(activeChatId: string | null): KannaState {
     localProjectsReady,
     commandError,
     startingLocalPath,
+    folderGroupsEnabled,
+    kanbanStatusesEnabled,
     sidebarOpen,
     sidebarCollapsed,
     scrollRef,
@@ -925,6 +983,7 @@ export function useKannaState(activeChatId: string | null): KannaState {
     handleCreateProject,
     handleCheckForUpdates,
     handleInstallUpdate,
+    handleSetCommitKannaDirectory,
     handleSend,
     handleCancel,
     handleDeleteChat,
@@ -940,4 +999,14 @@ export function useKannaState(activeChatId: string | null): KannaState {
 
 function flattenProjectChats(projectGroup: SidebarData["projectGroups"][number]) {
   return [...projectGroup.features.flatMap((feature) => feature.chats), ...projectGroup.generalChats]
+}
+
+function dedupeCommitPreferenceTargets(targets: Array<{ projectId?: string; localPath?: string }>) {
+  const seen = new Set<string>()
+  return targets.filter((target) => {
+    const key = target.localPath ?? target.projectId
+    if (!key || seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 }

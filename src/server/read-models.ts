@@ -30,7 +30,7 @@ export function deriveSidebarData(
   activeStatuses: Map<string, KannaStatus>
 ): SidebarData {
   const projects = [...state.projectsById.values()]
-    .filter((project) => !project.deletedAt)
+    .filter((project) => !project.deletedAt && !state.hiddenProjectKeys.has(project.repoKey))
     .sort((a, b) => b.updatedAt - a.updatedAt)
 
   const projectGroups: SidebarProjectGroup[] = projects.map((project) => {
@@ -101,7 +101,7 @@ export function deriveLocalProjectsSnapshot(
     })
   }
 
-  for (const project of [...state.projectsById.values()].filter((entry) => !entry.deletedAt)) {
+  for (const project of [...state.projectsById.values()].filter((entry) => !entry.deletedAt && !state.hiddenProjectKeys.has(entry.repoKey))) {
     const chats = [...state.chatsById.values()].filter((chat) => chat.projectId === project.id && !chat.deletedAt)
     const lastOpenedAt = chats.reduce(
       (latest, chat) => Math.max(latest, chat.lastMessageAt ?? chat.updatedAt ?? 0),

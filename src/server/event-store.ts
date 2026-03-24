@@ -1,8 +1,8 @@
-import { appendFile, mkdir, rename, rm, writeFile } from "node:fs/promises"
+import { appendFile, mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import path from "node:path"
 import { getDataDir, LOG_PREFIX } from "../shared/branding"
-import type { AgentProvider, FeatureStage, TranscriptEntry } from "../shared/types"
+import { FEATURE_STAGES, type AgentProvider, type FeatureStage, type TranscriptEntry } from "../shared/types"
 import { STORE_VERSION } from "../shared/types"
 import {
   type ChatEvent,
@@ -20,6 +20,18 @@ import { resolveProjectRepositoryIdentity, resolveProjectWorktreePaths } from ".
 import { resolveLocalPath } from "./paths"
 
 const COMPACTION_THRESHOLD_BYTES = 2 * 1024 * 1024
+const FEATURE_METADATA_VERSION = 1 as const
+
+interface PersistedProjectFeature {
+  v: typeof FEATURE_METADATA_VERSION
+  title: string
+  description: string
+  stage: FeatureStage
+  sortOrder: number
+  directoryRelativePath: string
+  overviewRelativePath: string
+  chatKeys: string[]
+}
 
 export class EventStore {
   readonly dataDir: string
@@ -459,12 +471,12 @@ export class EventStore {
     if (!project) {
       throw new Error("Project not found")
     }
-
+    if (this.state.hiddenProjectKeys.has(project.repoKey)) return
     const event: ProjectEvent = {
       v: STORE_VERSION,
-      type: "project_removed",
+      type: "project_hidden",
       timestamp: Date.now(),
-      projectId,
+      repoKey: project.repoKey,
     }
     await this.append(this.projectsLogPath, event)
   }
@@ -512,6 +524,7 @@ export class EventStore {
       overviewRelativePath,
     }
     await this.append(this.featuresLogPath, event)
+    await this.syncProjectFeatureState(projectId)
     return this.state.featuresById.get(featureId)!
   }
 
@@ -528,6 +541,7 @@ export class EventStore {
       title: trimmedTitle,
     }
     await this.append(this.featuresLogPath, event)
+    await this.syncProjectFeatureState(feature.projectId)
   }
 
   async setFeatureStage(featureId: string, stage: FeatureStage) {
@@ -545,6 +559,7 @@ export class EventStore {
         : {}),
     }
     await this.append(this.featuresLogPath, event)
+    await this.syncProjectFeatureState(feature.projectId, true)
   }
 
   async reorderFeatures(projectId: string, orderedFeatureIds: string[]) {
@@ -565,6 +580,7 @@ export class EventStore {
       orderedFeatureIds,
     }
     await this.append(this.featuresLogPath, event)
+    await this.syncProjectFeatureState(projectId)
   }
 
   async deleteFeature(featureId: string) {
@@ -581,6 +597,7 @@ export class EventStore {
       featureId,
     }
     await this.append(this.featuresLogPath, event)
+    await this.syncProjectFeatureState(feature.projectId)
   }
 
   async hideProject(localPath: string) {
@@ -648,7 +665,7 @@ export class EventStore {
   }
 
   async deleteChat(chatId: string) {
-    this.requireChat(chatId)
+    const chat = this.requireChat(chatId)
     const event: ChatEvent = {
       v: STORE_VERSION,
       type: "chat_deleted",
@@ -656,6 +673,7 @@ export class EventStore {
       chatId,
     }
     await this.append(this.chatsLogPath, event)
+    await this.syncProjectFeatureState(chat.projectId)
   }
 
   async setChatProvider(chatId: string, provider: AgentProvider) {
@@ -669,6 +687,7 @@ export class EventStore {
       provider,
     }
     await this.append(this.chatsLogPath, event)
+    await this.syncProjectFeatureState(chat.projectId)
   }
 
   async setPlanMode(chatId: string, planMode: boolean) {
@@ -701,6 +720,7 @@ export class EventStore {
       featureId,
     }
     await this.append(this.chatsLogPath, event)
+    await this.syncProjectFeatureState(chat.projectId)
   }
 
   async appendMessage(chatId: string, entry: TranscriptEntry) {
@@ -771,6 +791,77 @@ export class EventStore {
       sessionToken,
     }
     await this.append(this.turnsLogPath, event)
+    await this.syncProjectFeatureState(chat.projectId)
+  }
+
+  async reconcileProjectFeatureState(projectId: string) {
+    const project = this.getProject(projectId)
+    if (!project) {
+      throw new Error("Project not found")
+    }
+
+    const persistedFeatures = await this.readProjectFeatureMetadata(project.localPath)
+    const persistedByDirectory = new Map(
+      persistedFeatures.map((feature) => [feature.directoryRelativePath, feature] as const)
+    )
+    const existingFeatures = this.listFeaturesByProject(projectId)
+    const existingByDirectory = new Map(
+      existingFeatures.map((feature) => [feature.directoryRelativePath, feature] as const)
+    )
+
+    for (const feature of existingFeatures) {
+      if (persistedByDirectory.has(feature.directoryRelativePath)) continue
+      await this.deleteFeature(feature.id)
+    }
+
+    const chatsByKey = new Map(
+      this.listChatsByProject(projectId)
+        .map((chat) => {
+          const key = this.getChatPersistenceKey(chat)
+          return key ? [key, chat] as const : null
+        })
+        .filter((entry): entry is readonly [string, ReturnType<EventStore["listChatsByProject"]>[number]] => Boolean(entry))
+    )
+
+    let importedFeatures = 0
+    for (const persistedFeature of [...persistedFeatures].sort((a, b) => a.sortOrder - b.sortOrder)) {
+      const existingFeature = existingByDirectory.get(persistedFeature.directoryRelativePath)
+      if (existingFeature) {
+        continue
+      }
+      const featureId = crypto.randomUUID()
+      const timestamp = Date.now()
+      const event: FeatureEvent = {
+        v: STORE_VERSION,
+        type: "feature_created",
+        timestamp,
+        featureId,
+        projectId,
+        title: persistedFeature.title,
+        description: persistedFeature.description,
+        stage: persistedFeature.stage,
+        sortOrder: persistedFeature.sortOrder,
+        directoryRelativePath: persistedFeature.directoryRelativePath,
+        overviewRelativePath: persistedFeature.overviewRelativePath,
+      }
+      await this.append(this.featuresLogPath, event)
+      importedFeatures += 1
+
+      for (const chatKey of persistedFeature.chatKeys) {
+        const chat = chatsByKey.get(chatKey)
+        if (!chat) continue
+        const assignmentEvent: ChatEvent = {
+          v: STORE_VERSION,
+          type: "chat_feature_set",
+          timestamp: Date.now(),
+          chatId: chat.id,
+          featureId,
+        }
+        await this.append(this.chatsLogPath, assignmentEvent)
+      }
+    }
+
+    return importedFeatures
   }
 
   getProject(projectId: string) {
@@ -950,5 +1041,86 @@ export class EventStore {
       "- Testing strategy",
       "",
     ].join("\n")
+  }
+
+  private getFeatureMetadataPath(localPath: string, directoryRelativePath: string) {
+    return path.join(localPath, directoryRelativePath, "feature.json")
+  }
+
+  private getChatPersistenceKey(chat: {
+    provider: AgentProvider | null
+    sessionToken: string | null
+  }) {
+    if (!chat.provider || !chat.sessionToken) return null
+    return `${chat.provider}:${chat.sessionToken}`
+  }
+
+  private async syncProjectFeatureState(projectId: string, force = false) {
+    const project = this.getProject(projectId)
+    if (!project) return
+    if (!force && this.listFeaturesByProject(projectId).length === 0) {
+      return
+    }
+
+    for (const feature of this.listFeaturesByProject(projectId)) {
+      const persistedFeature: PersistedProjectFeature = {
+        v: FEATURE_METADATA_VERSION,
+        title: feature.title,
+        description: feature.description,
+        stage: feature.stage,
+        sortOrder: feature.sortOrder,
+        directoryRelativePath: feature.directoryRelativePath,
+        overviewRelativePath: feature.overviewRelativePath,
+        chatKeys: this.listChatsByProject(projectId)
+          .filter((chat) => chat.featureId === feature.id)
+          .map((chat) => this.getChatPersistenceKey(chat))
+          .filter((chatKey): chatKey is string => Boolean(chatKey)),
+      }
+      const featureMetadataPath = this.getFeatureMetadataPath(project.localPath, feature.directoryRelativePath)
+      await mkdir(path.dirname(featureMetadataPath), { recursive: true })
+      await writeFile(featureMetadataPath, JSON.stringify(persistedFeature, null, 2), "utf8")
+    }
+  }
+
+  private async readProjectFeatureMetadata(localPath: string): Promise<PersistedProjectFeature[]> {
+    try {
+      const kannaDir = path.join(localPath, ".kanna")
+      const entries = await readdir(kannaDir, { withFileTypes: true })
+      const features: PersistedProjectFeature[] = []
+
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue
+        const raw = await readFile(path.join(kannaDir, entry.name, "feature.json"), "utf8").catch(() => null)
+        if (!raw?.trim()) continue
+        const parsed = JSON.parse(raw) as Partial<PersistedProjectFeature>
+        if (
+          parsed.v !== FEATURE_METADATA_VERSION
+          || typeof parsed.title !== "string"
+          || typeof parsed.description !== "string"
+          || typeof parsed.directoryRelativePath !== "string"
+          || typeof parsed.overviewRelativePath !== "string"
+          || typeof parsed.sortOrder !== "number"
+          || !FEATURE_STAGES.includes(parsed.stage as FeatureStage)
+        ) {
+          continue
+        }
+        features.push({
+          v: FEATURE_METADATA_VERSION,
+          title: parsed.title,
+          description: parsed.description,
+          stage: parsed.stage as FeatureStage,
+          sortOrder: parsed.sortOrder,
+          directoryRelativePath: parsed.directoryRelativePath,
+          overviewRelativePath: parsed.overviewRelativePath,
+          chatKeys: Array.isArray(parsed.chatKeys)
+            ? parsed.chatKeys.filter((chatKey): chatKey is string => typeof chatKey === "string")
+            : [],
+        })
+      }
+
+      return features
+    } catch {
+      return []
+    }
   }
 }

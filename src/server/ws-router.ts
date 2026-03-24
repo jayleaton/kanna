@@ -262,6 +262,7 @@ export function createWsRouter({
             localPath: project.localPath,
             worktreePaths: project.worktreePaths,
           })
+          await store.reconcileProjectFeatureState(project.id)
           await refreshDiscovery()
           send(ws, {
             v: PROTOCOL_VERSION,
@@ -286,6 +287,7 @@ export function createWsRouter({
             localPath: project.localPath,
             worktreePaths: project.worktreePaths,
           })
+          await store.reconcileProjectFeatureState(project.id)
           await refreshDiscovery()
           send(ws, {
             v: PROTOCOL_VERSION,
@@ -310,7 +312,6 @@ export function createWsRouter({
             }
             await store.hideProject(project.localPath)
           }
-          await store.removeProject(command.projectId)
           await refreshDiscovery()
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id })
           break
@@ -324,10 +325,20 @@ export function createWsRouter({
             for (const worktreePath of existingProject.worktreePaths) {
               terminals.closeByCwd(worktreePath)
             }
-            await store.removeProject(existingProject.id)
           }
           await store.hideProject(command.localPath)
           await refreshDiscovery()
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id })
+          break
+        }
+        case "project.setKannaDirectoryCommitMode": {
+          const localPath = command.projectId
+            ? store.getProject(command.projectId)?.localPath
+            : command.localPath
+          if (!localPath) {
+            throw new Error("Project not found")
+          }
+          await git.setKannaDirectoryCommitMode(localPath, command.commitKanna)
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id })
           break
         }

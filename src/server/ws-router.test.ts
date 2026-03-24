@@ -267,6 +267,60 @@ describe("ws-router", () => {
     ])
   })
 
+  test("updates .gitignore commit mode using a local project path", async () => {
+    const calls: Array<{ localPath: string; commitKanna: boolean }> = []
+    const router = createWsRouter({
+      store: {
+        state: createEmptyState(),
+        getChat: () => null,
+        getMessages: () => [],
+      } as never,
+      agent: { getActiveStatuses: () => new Map(), getLiveUsage: () => null } as never,
+      terminals: {
+        getSnapshot: () => null,
+        onEvent: () => () => {},
+      } as never,
+      keybindings: {
+        getSnapshot: () => DEFAULT_KEYBINDINGS_SNAPSHOT,
+        onChange: () => () => {},
+      } as never,
+      git: {
+        async setKannaDirectoryCommitMode(localPath: string, commitKanna: boolean) {
+          calls.push({ localPath, commitKanna })
+        },
+      } as never,
+      refreshDiscovery: async () => [],
+      getDiscoveredProjects: () => [],
+      machineDisplayName: "Local Machine",
+      updateManager: null,
+    })
+    const ws = new FakeWebSocket()
+
+    router.handleMessage(
+      ws as never,
+      JSON.stringify({
+        v: 1,
+        type: "command",
+        id: "project-gitignore-1",
+        command: {
+          type: "project.setKannaDirectoryCommitMode",
+          localPath: "/tmp/project-1",
+          commitKanna: false,
+        },
+      })
+    )
+
+    await Promise.resolve()
+    expect(calls).toEqual([{ localPath: "/tmp/project-1", commitKanna: false }])
+    expect(ws.sent).toEqual([
+      {
+        v: PROTOCOL_VERSION,
+        type: "ack",
+        id: "project-gitignore-1",
+      },
+    ])
+  })
+
   test("subscribes to keybindings snapshots and writes keybindings through the router", async () => {
     const initialSnapshot: KeybindingsSnapshot = DEFAULT_KEYBINDINGS_SNAPSHOT
     const keybindings = {
@@ -515,6 +569,7 @@ describe("ws-router", () => {
         worktreePaths: ["/tmp/project-1"],
         title: "project-1",
       }),
+      reconcileProjectFeatureState: async () => 0,
       isProjectHidden: () => false,
       listChatsByProject: () => [...chatState.values()].sort((a, b) => (b.lastMessageAt ?? b.updatedAt) - (a.lastMessageAt ?? a.updatedAt)),
       createChat: async (projectId: string) => {

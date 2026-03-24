@@ -66,6 +66,8 @@ function KannaLayout() {
         onReorderFeatures={(projectId, orderedFeatureIds) => {
           void state.handleReorderFeatures(projectId, orderedFeatureIds)
         }}
+        folderGroupsEnabled={state.folderGroupsEnabled}
+        kanbanStatusesEnabled={state.kanbanStatusesEnabled}
         onDeleteChat={(chat) => {
           void state.handleDeleteChat(chat)
         }}

@@ -49,6 +49,7 @@ export type ClientCommand =
   | { type: "project.create"; localPath: string; title: string }
   | { type: "project.remove"; projectId: string }
   | { type: "project.hide"; localPath: string }
+  | { type: "project.setKannaDirectoryCommitMode"; projectId?: string; localPath?: string; commitKanna: boolean }
   | { type: "system.listDirectory"; localPath?: string }
   | { type: "system.ping" }
   | { type: "update.check"; force?: boolean }

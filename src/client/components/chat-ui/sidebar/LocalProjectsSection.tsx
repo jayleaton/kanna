@@ -50,6 +50,8 @@ interface Props {
   onReorderGroups?: (newOrder: string[]) => void
   isConnected?: boolean
   startingLocalPath?: string | null
+  folderGroupsEnabled?: boolean
+  kanbanStatusesEnabled?: boolean
 }
 
 interface SortableProjectGroupProps extends Omit<Props, "projectGroups"> {
@@ -83,12 +85,21 @@ function SortableProjectGroup({
   onRemoveProject,
   isConnected,
   startingLocalPath,
+  folderGroupsEnabled = true,
+  kanbanStatusesEnabled = true,
 }: SortableProjectGroupProps) {
   const { groupKey, localPath, features, generalChats } = group
   const projectKey = `project:${groupKey}`
+  const generalChatsKey = `general:${groupKey}`
   const showProjectBody = sectionOpen(collapsedSections, projectKey)
+  const showGeneralChats = features.length === 0 || sectionOpen(collapsedSections, generalChatsKey)
   const [draggedChatId, setDraggedChatId] = useState<string | null>(null)
   const [draggedFeatureId, setDraggedFeatureId] = useState<string | null>(null)
+  const [showAllGeneralChats, setShowAllGeneralChats] = useState(false)
+  const visibleGeneralChats = folderGroupsEnabled && !showAllGeneralChats
+    ? generalChats.slice(0, 10)
+    : generalChats
+  const hasMoreGeneralChats = folderGroupsEnabled && generalChats.length > 10
 
   const {
     attributes,
@@ -201,7 +212,7 @@ function SortableProjectGroup({
 
       {showProjectBody ? (
         <div className="mb-2 space-y-2">
-          {features.length > 0 ? (
+          {folderGroupsEnabled && features.length > 0 ? (
             <section className="space-y-2 pl-6">
               {features.map((feature) => {
                 const featureKey = `feature:${feature.featureId}`
@@ -259,30 +270,32 @@ function SortableProjectGroup({
                           </TooltipContent>
                         </Tooltip>
                       </button>
-                      <Select
-                        value={feature.stage}
-                        onValueChange={(value) => onSetFeatureStage?.(feature.featureId, value as FeatureStage)}
-                      >
-                        <SelectTrigger
-                          className={cn(
-                            "h-7 w-auto min-w-[70px] shrink-0 items-center gap-1 rounded-full px-2 pr-1.5 text-[10px] font-semibold leading-none tracking-[0.04em] shadow-none focus:ring-0 focus:ring-offset-0 [&>span]:flex [&>span]:items-center [&>span]:leading-none [&>svg]:size-3 [&>svg]:shrink-0 [&>svg]:translate-y-0 [&>svg]:opacity-60",
-                            FEATURE_STAGE_TINT_STYLES[feature.stage]
-                          )}
+                      {kanbanStatusesEnabled ? (
+                        <Select
+                          value={feature.stage}
+                          onValueChange={(value) => onSetFeatureStage?.(feature.featureId, value as FeatureStage)}
                         >
-                          <SelectValue>{FEATURE_STAGE_LABELS[feature.stage]}</SelectValue>
-                        </SelectTrigger>
-                        <SelectContent>
-                          {FEATURE_STAGES.map((stage) => (
-                            <SelectItem
-                              key={stage}
-                              value={stage}
-                              className={cn("text-[11px] font-medium", stage === feature.stage && FEATURE_STAGE_TINT_STYLES[stage])}
-                            >
-                              {FEATURE_STAGE_LABELS[stage]}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                          <SelectTrigger
+                            className={cn(
+                              "h-7 w-auto min-w-[70px] shrink-0 items-center gap-1 rounded-full px-2 pr-1.5 text-[10px] font-semibold leading-none tracking-[0.04em] shadow-none focus:ring-0 focus:ring-offset-0 [&>span]:flex [&>span]:items-center [&>span]:leading-none [&>svg]:size-3 [&>svg]:shrink-0 [&>svg]:translate-y-0 [&>svg]:opacity-60",
+                              FEATURE_STAGE_TINT_STYLES[feature.stage]
+                            )}
+                          >
+                            <SelectValue>{FEATURE_STAGE_LABELS[feature.stage]}</SelectValue>
+                          </SelectTrigger>
+                          <SelectContent>
+                            {FEATURE_STAGES.map((stage) => (
+                              <SelectItem
+                                key={stage}
+                                value={stage}
+                                className={cn("text-[11px] font-medium", stage === feature.stage && FEATURE_STAGE_TINT_STYLES[stage])}
+                              >
+                                {FEATURE_STAGE_LABELS[stage]}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : null}
                       {onNewLocalChat ? (
                         <Button
                           variant="ghost"
@@ -329,17 +342,39 @@ function SortableProjectGroup({
                 setDraggedChatId(null)
               } : undefined}
             >
-              <div className="flex w-full items-center gap-2 px-4 py-1 text-left text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                <span>General Chats</span>
-                <span className="ml-auto">{generalChats.length}</span>
-              </div>
-              <div className="space-y-[2px] pl-7">
-                {generalChats.map((chat) => renderChatRow(chat, {
-                  draggable: true,
-                  onDragStart: (draggedChat) => setDraggedChatId(draggedChat.chatId),
-                  onDragEnd: () => setDraggedChatId(null),
-                }))}
-              </div>
+              {folderGroupsEnabled ? (
+                <button
+                  type="button"
+                  onClick={() => onToggleSection(generalChatsKey)}
+                  className="flex w-full items-center gap-2 px-4 py-1 text-left text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground"
+                >
+                  <ChevronRight className={cn("size-3 transition-transform", showGeneralChats && "rotate-90")} />
+                  <span>General Chats</span>
+                  <span className="ml-auto">{generalChats.length}</span>
+                </button>
+              ) : null}
+              {!folderGroupsEnabled || showGeneralChats ? (
+                <div className={cn("space-y-[2px]", folderGroupsEnabled ? "pl-7" : "pl-4")}>
+                  {visibleGeneralChats.map((chat) => renderChatRow(chat, {
+                    draggable: true,
+                    onDragStart: (draggedChat) => setDraggedChatId(draggedChat.chatId),
+                    onDragEnd: () => setDraggedChatId(null),
+                  }))}
+                  {hasMoreGeneralChats ? (
+                    <div className="pt-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-xs text-muted-foreground"
+                        onClick={() => setShowAllGeneralChats((value) => !value)}
+                      >
+                        {showAllGeneralChats ? "Show less" : `Show ${generalChats.length - 10} more`}
+                      </Button>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </section>
           ) : null}
         </div>
@@ -364,6 +399,8 @@ export function LocalProjectsSection({
   onReorderGroups,
   isConnected,
   startingLocalPath,
+  folderGroupsEnabled = true,
+  kanbanStatusesEnabled = true,
 }: Props) {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -426,6 +463,8 @@ export function LocalProjectsSection({
             onReorderGroups={onReorderGroups}
             isConnected={isConnected}
             startingLocalPath={startingLocalPath}
+            folderGroupsEnabled={folderGroupsEnabled}
+            kanbanStatusesEnabled={kanbanStatusesEnabled}
           />
         ))}
       </SortableContext>

@@ -29,6 +29,8 @@ interface KannaSidebarProps {
   onSetFeatureStage: (featureId: string, stage: FeatureStage) => void
   onSetChatFeature: (chatId: string, featureId: string | null) => void
   onReorderFeatures: (projectId: string, orderedFeatureIds: string[]) => void
+  folderGroupsEnabled: boolean
+  kanbanStatusesEnabled: boolean
   onDeleteChat: (chat: SidebarChatRow) => void
   onRemoveProject: (projectId: string) => void
   startingLocalPath?: string | null
@@ -55,6 +57,8 @@ export function KannaSidebar({
   onSetFeatureStage,
   onSetChatFeature,
   onReorderFeatures,
+  folderGroupsEnabled,
+  kanbanStatusesEnabled,
   onDeleteChat,
   onRemoveProject,
   startingLocalPath,
@@ -86,14 +90,25 @@ export function KannaSidebar({
     return ordered
   }, [data.projectGroups, savedOrder])
 
+  const sidebarProjectGroups = useMemo(
+    () => folderGroupsEnabled
+      ? orderedProjectGroups
+      : orderedProjectGroups.map((group) => ({
+          ...group,
+          features: [],
+          generalChats: flattenProjectChats(group),
+        })),
+    [folderGroupsEnabled, orderedProjectGroups]
+  )
+
   const handleReorderGroups = useCallback(
     (newOrder: string[]) => setGroupOrder(newOrder),
     [setGroupOrder]
   )
 
   const activeVisibleCount = useMemo(
-    () => data.projectGroups.reduce((count, group) => count + flattenProjectChats(group).length, 0),
-    [data.projectGroups]
+    () => sidebarProjectGroups.reduce((count, group) => count + flattenProjectChats(group).length, 0),
+    [sidebarProjectGroups]
   )
 
   const toggleSection = useCallback((key: string) => {
@@ -299,21 +314,23 @@ export function KannaSidebar({
             ) : null}
 
             <LocalProjectsSection
-              projectGroups={orderedProjectGroups}
+              projectGroups={sidebarProjectGroups}
               onReorderGroups={handleReorderGroups}
               collapsedSections={collapsedSections}
               onToggleSection={toggleSection}
               renderChatRow={renderChatRow}
               onNewLocalChat={onCreateChat}
-              onCreateFeature={onCreateFeature}
+              onCreateFeature={folderGroupsEnabled ? onCreateFeature : undefined}
               onRenameFeature={onRenameFeature}
               onDeleteFeature={onDeleteFeature}
-              onSetFeatureStage={onSetFeatureStage}
+              onSetFeatureStage={kanbanStatusesEnabled ? onSetFeatureStage : undefined}
               onSetChatFeature={onSetChatFeature}
               onReorderFeatures={onReorderFeatures}
               onRemoveProject={onRemoveProject}
               isConnected={connectionStatus === "connected"}
               startingLocalPath={startingLocalPath}
+              folderGroupsEnabled={folderGroupsEnabled}
+              kanbanStatusesEnabled={kanbanStatusesEnabled}
             />
           </div>
         </div>

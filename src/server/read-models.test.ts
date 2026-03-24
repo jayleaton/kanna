@@ -132,6 +132,26 @@ describe("read models", () => {
     expect(snapshot.suggestedFolders.length).toBeGreaterThan(0)
     expect(snapshot.suggestedFolders.every((folder) => typeof folder.label === "string" && folder.label.length > 0)).toBe(true)
   })
+
+  test("excludes hidden projects from sidebar and local project snapshots", () => {
+    const state = createEmptyState()
+    state.projectsById.set("project-1", {
+      id: "project-1",
+      repoKey: "path:/tmp/project",
+      localPath: "/tmp/project",
+      worktreePaths: ["/tmp/project"],
+      title: "Hidden Project",
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    state.projectIdsByRepoKey.set("path:/tmp/project", "project-1")
+    state.projectIdsByPath.set("/tmp/project", "project-1")
+    state.hiddenProjectKeys.add("path:/tmp/project")
+
+    expect(deriveSidebarData(state, new Map()).projectGroups).toHaveLength(0)
+    expect(deriveLocalProjectsSnapshot(state, [], "Local Machine").projects).toHaveLength(0)
+  })
+
   test("groups chats into features and general, with done features sorted last", () => {
     const state = createEmptyState()
     state.projectsById.set("project-1", {
