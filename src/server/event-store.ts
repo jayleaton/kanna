@@ -16,6 +16,7 @@ import {
   cloneTranscriptEntries,
   createEmptyState,
 } from "./events"
+import { resolveProjectRepositoryIdentity, resolveProjectWorktreePaths } from "./git-repository"
 import { resolveLocalPath } from "./paths"
 
 const COMPACTION_THRESHOLD_BYTES = 2 * 1024 * 1024
@@ -51,8 +52,22 @@ export class EventStore {
     await this.ensureFile(this.turnsLogPath)
     await this.loadSnapshot()
     await this.replayLogs()
+    this.hydrateProjectWorktrees()
     if (await this.shouldCompact()) {
       await this.compact()
+    }
+  }
+
+  private hydrateProjectWorktrees() {
+    for (const project of this.state.projectsById.values()) {
+      if (project.deletedAt || !project.repoKey.startsWith("git:")) continue
+      const resolvedPaths = resolveProjectWorktreePaths(project.localPath)
+      for (const worktreePath of resolvedPaths) {
+        if (!project.worktreePaths.includes(worktreePath)) {
+          project.worktreePaths.push(worktreePath)
+        }
+        this.state.projectIdsByPath.set(worktreePath, project.id)
+      }
     }
   }
 
@@ -92,7 +107,10 @@ export class EventStore {
       }
       for (const project of parsed.projects) {
         this.state.projectsById.set(project.id, { ...project })
-        this.state.projectIdsByPath.set(project.localPath, project.id)
+        this.state.projectIdsByRepoKey.set(project.repoKey, project.id)
+        for (const worktreePath of project.worktreePaths) {
+          this.state.projectIdsByPath.set(worktreePath, project.id)
+        }
       }
       for (const feature of parsed.features ?? []) {
         this.state.featuresById.set(feature.id, { ...feature })
@@ -103,8 +121,8 @@ export class EventStore {
       for (const messageSet of parsed.messages) {
         this.state.messagesByChatId.set(messageSet.chatId, cloneTranscriptEntries(messageSet.entries))
       }
-      for (const localPath of parsed.hiddenProjectPaths ?? []) {
-        this.state.hiddenProjectPaths.add(resolveLocalPath(localPath))
+      for (const repoKey of parsed.hiddenProjectKeys ?? []) {
+        this.state.hiddenProjectKeys.add(repoKey)
       }
     } catch (error) {
       console.warn(`${LOG_PREFIX} Failed to load snapshot, resetting local history:`, error)
@@ -114,11 +132,12 @@ export class EventStore {
 
   private resetState() {
     this.state.projectsById.clear()
+    this.state.projectIdsByRepoKey.clear()
     this.state.projectIdsByPath.clear()
     this.state.featuresById.clear()
     this.state.chatsById.clear()
     this.state.messagesByChatId.clear()
-    this.state.hiddenProjectPaths.clear()
+    this.state.hiddenProjectKeys.clear()
   }
 
   private async replayLogs() {
@@ -178,12 +197,29 @@ export class EventStore {
         const localPath = resolveLocalPath(event.localPath)
         const project = {
           id: event.projectId,
+          repoKey: event.repoKey,
           localPath,
+          worktreePaths: event.worktreePaths.map((worktreePath) => resolveLocalPath(worktreePath)),
           title: event.title,
           createdAt: event.timestamp,
           updatedAt: event.timestamp,
         }
         this.state.projectsById.set(project.id, project)
+        this.state.projectIdsByRepoKey.set(project.repoKey, project.id)
+        for (const worktreePath of project.worktreePaths) {
+          this.state.projectIdsByPath.set(worktreePath, project.id)
+        }
+        break
+      }
+      case "project_worktree_added": {
+        const project = this.state.projectsById.get(event.projectId)
+        if (!project) break
+        const localPath = resolveLocalPath(event.localPath)
+        if (!project.worktreePaths.includes(localPath)) {
+          project.worktreePaths.push(localPath)
+        }
+        project.localPath = localPath
+        project.updatedAt = event.timestamp
         this.state.projectIdsByPath.set(localPath, project.id)
         break
       }
@@ -192,15 +228,18 @@ export class EventStore {
         if (!project) break
         project.deletedAt = event.timestamp
         project.updatedAt = event.timestamp
-        this.state.projectIdsByPath.delete(project.localPath)
+        this.state.projectIdsByRepoKey.delete(project.repoKey)
+        for (const worktreePath of project.worktreePaths) {
+          this.state.projectIdsByPath.delete(worktreePath)
+        }
         break
       }
       case "project_hidden": {
-        this.state.hiddenProjectPaths.add(resolveLocalPath(event.localPath))
+        this.state.hiddenProjectKeys.add(event.repoKey)
         break
       }
       case "project_unhidden": {
-        this.state.hiddenProjectPaths.delete(resolveLocalPath(event.localPath))
+        this.state.hiddenProjectKeys.delete(event.repoKey)
         break
       }
       case "feature_created": {
@@ -369,12 +408,34 @@ export class EventStore {
   }
 
   async openProject(localPath: string, title?: string) {
-    const normalized = resolveLocalPath(localPath)
-    const existingId = this.state.projectIdsByPath.get(normalized)
+    const identity = resolveProjectRepositoryIdentity(localPath)
+    const worktreePaths = identity.isGitRepo ? resolveProjectWorktreePaths(identity.worktreePath) : [identity.worktreePath]
+    const existingId = this.state.projectIdsByRepoKey.get(identity.repoKey)
     if (existingId) {
       const existing = this.state.projectsById.get(existingId)
       if (existing && !existing.deletedAt) {
-        return existing
+        const missingWorktreePaths = worktreePaths.filter((worktreePath) => !existing.worktreePaths.includes(worktreePath))
+        for (const missingWorktreePath of missingWorktreePaths) {
+          const event: ProjectEvent = {
+            v: STORE_VERSION,
+            type: "project_worktree_added",
+            timestamp: Date.now(),
+            projectId: existing.id,
+            localPath: missingWorktreePath,
+          }
+          await this.append(this.projectsLogPath, event)
+        }
+        if (existing.localPath !== identity.worktreePath && existing.worktreePaths.includes(identity.worktreePath)) {
+          const event: ProjectEvent = {
+            v: STORE_VERSION,
+            type: "project_worktree_added",
+            timestamp: Date.now(),
+            projectId: existing.id,
+            localPath: identity.worktreePath,
+          }
+          await this.append(this.projectsLogPath, event)
+        }
+        return this.state.projectsById.get(existing.id)!
       }
     }
 
@@ -384,8 +445,10 @@ export class EventStore {
       type: "project_opened",
       timestamp: Date.now(),
       projectId,
-      localPath: normalized,
-      title: title?.trim() || path.basename(normalized) || normalized,
+      repoKey: identity.repoKey,
+      localPath: identity.worktreePath,
+      worktreePaths,
+      title: title?.trim() || identity.title,
     }
     await this.append(this.projectsLogPath, event)
     return this.state.projectsById.get(projectId)!
@@ -521,25 +584,25 @@ export class EventStore {
   }
 
   async hideProject(localPath: string) {
-    const normalized = resolveLocalPath(localPath)
-    if (this.state.hiddenProjectPaths.has(normalized)) return
+    const identity = resolveProjectRepositoryIdentity(localPath)
+    if (this.state.hiddenProjectKeys.has(identity.repoKey)) return
     const event: ProjectEvent = {
       v: STORE_VERSION,
       type: "project_hidden",
       timestamp: Date.now(),
-      localPath: normalized,
+      repoKey: identity.repoKey,
     }
     await this.append(this.projectsLogPath, event)
   }
 
   async unhideProject(localPath: string) {
-    const normalized = resolveLocalPath(localPath)
-    if (!this.state.hiddenProjectPaths.has(normalized)) return
+    const identity = resolveProjectRepositoryIdentity(localPath)
+    if (!this.state.hiddenProjectKeys.has(identity.repoKey)) return
     const event: ProjectEvent = {
       v: STORE_VERSION,
       type: "project_unhidden",
       timestamp: Date.now(),
-      localPath: normalized,
+      repoKey: identity.repoKey,
     }
     await this.append(this.projectsLogPath, event)
   }
@@ -764,8 +827,8 @@ export class EventStore {
       })
   }
 
-  isProjectHidden(localPath: string) {
-    return this.state.hiddenProjectPaths.has(resolveLocalPath(localPath))
+  isProjectHidden(repoKey: string) {
+    return this.state.hiddenProjectKeys.has(repoKey)
   }
 
   listChatsByProject(projectId: string) {
@@ -795,7 +858,7 @@ export class EventStore {
         chatId,
         entries: cloneTranscriptEntries(entries),
       })),
-      hiddenProjectPaths: [...this.state.hiddenProjectPaths.values()],
+      hiddenProjectKeys: [...this.state.hiddenProjectKeys.values()],
     }
 
     const tmpPath = `${this.snapshotPath}.tmp`

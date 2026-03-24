@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react"
 import { useNavigate } from "react-router-dom"
 import { APP_NAME } from "../../shared/branding"
-import { PROVIDERS, type AgentProvider, type AskUserQuestionAnswerMap, type ChatUserMessage, type FeatureStage, type KeybindingsSnapshot, type ModelOptions, type ProviderCatalogEntry } from "../../shared/types"
+import { PROVIDERS, type AgentProvider, type AskUserQuestionAnswerMap, type ChatUserMessage, type DirectoryBrowserSnapshot, type FeatureStage, type KeybindingsSnapshot, type ModelOptions, type ProviderCatalogEntry, type UpdateInstallResult, type UpdateSnapshot } from "../../shared/types"
 import { useChatPreferencesStore } from "../stores/chatPreferencesStore"
 import { useRightSidebarStore } from "../stores/rightSidebarStore"
 import { useTerminalLayoutStore } from "../stores/terminalLayoutStore"
@@ -59,7 +59,35 @@ export function shouldPinTranscriptToBottom(distanceFromBottom: number) {
   return distanceFromBottom < 120
 }
 
+export function getUiUpdateRestartReconnectAction(
+  phase: string | null,
+  connectionStatus: SocketStatus
+): "none" | "awaiting_reconnect" | "navigate_changelog" {
+  if (phase === "awaiting_disconnect" && connectionStatus === "disconnected") {
+    return "awaiting_reconnect"
+  }
+
+  if (phase === "awaiting_reconnect" && connectionStatus === "connected") {
+    return "navigate_changelog"
+  }
+
+  return "none"
+}
+
 const FIXED_TRANSCRIPT_PADDING_BOTTOM = 320
+const UI_UPDATE_RESTART_STORAGE_KEY = "kanna:ui-update-restart"
+
+function getUiUpdateRestartPhase() {
+  return window.sessionStorage.getItem(UI_UPDATE_RESTART_STORAGE_KEY)
+}
+
+function setUiUpdateRestartPhase(phase: "awaiting_disconnect" | "awaiting_reconnect") {
+  window.sessionStorage.setItem(UI_UPDATE_RESTART_STORAGE_KEY, phase)
+}
+
+function clearUiUpdateRestartPhase() {
+  window.sessionStorage.removeItem(UI_UPDATE_RESTART_STORAGE_KEY)
+}
 
 export interface ProjectRequest {
   mode: "new" | "existing"
@@ -108,6 +136,7 @@ export interface KannaState {
   activeChatId: string | null
   sidebarData: SidebarData
   localProjects: LocalProjectsSnapshot | null
+  updateSnapshot: UpdateSnapshot | null
   chatSnapshot: ChatSnapshot | null
   keybindings: KeybindingsSnapshot | null
   connectionStatus: SocketStatus
@@ -146,7 +175,10 @@ export interface KannaState {
   handleReorderFeatures: (projectId: string, orderedFeatureIds: string[]) => Promise<void>
   handleOpenLocalProject: (localPath: string) => Promise<void>
   handleHideLocalProject: (localPath: string) => Promise<void>
+  handleListDirectories: (localPath?: string) => Promise<DirectoryBrowserSnapshot>
   handleCreateProject: (project: ProjectRequest) => Promise<void>
+  handleCheckForUpdates: (options?: { force?: boolean }) => Promise<void>
+  handleInstallUpdate: () => Promise<void>
   handleSend: (message: ChatUserMessage, options?: { provider?: AgentProvider; model?: string; modelOptions?: ModelOptions; planMode?: boolean }) => Promise<void>
   handleCancel: () => Promise<void>
   handleDeleteChat: (chat: SidebarChatRow) => Promise<void>
@@ -175,6 +207,7 @@ export function useKannaState(activeChatId: string | null): KannaState {
 
   const [sidebarData, setSidebarData] = useState<SidebarData>({ projectGroups: [] })
   const [localProjects, setLocalProjects] = useState<LocalProjectsSnapshot | null>(null)
+  const [updateSnapshot, setUpdateSnapshot] = useState<UpdateSnapshot | null>(null)
   const [chatSnapshot, setChatSnapshot] = useState<ChatSnapshot | null>(null)
   const [keybindings, setKeybindings] = useState<KeybindingsSnapshot | null>(null)
   const [connectionStatus, setConnectionStatus] = useState<SocketStatus>("connecting")
@@ -212,6 +245,49 @@ export function useKannaState(activeChatId: string | null): KannaState {
       setCommandError(null)
     })
   }, [socket])
+
+  useEffect(() => {
+    return socket.subscribe<UpdateSnapshot>({ type: "update" }, (snapshot) => {
+      setUpdateSnapshot(snapshot)
+      setCommandError(null)
+    })
+  }, [socket])
+
+  useEffect(() => {
+    if (connectionStatus !== "connected") return
+    void socket.command<UpdateSnapshot>({ type: "update.check", force: true }).catch((error) => {
+      setCommandError(error instanceof Error ? error.message : String(error))
+    })
+  }, [connectionStatus, socket])
+
+  useEffect(() => {
+    const phase = getUiUpdateRestartPhase()
+    const reconnectAction = getUiUpdateRestartReconnectAction(phase, connectionStatus)
+    if (reconnectAction === "awaiting_reconnect") {
+      setUiUpdateRestartPhase("awaiting_reconnect")
+      return
+    }
+
+    if (reconnectAction === "navigate_changelog") {
+      clearUiUpdateRestartPhase()
+      navigate("/settings/changelog", { replace: true })
+    }
+  }, [connectionStatus, navigate])
+
+  useEffect(() => {
+    function handleWindowFocus() {
+      if (!updateSnapshot?.lastCheckedAt) return
+      if (Date.now() - updateSnapshot.lastCheckedAt <= 60 * 60 * 1000) return
+      void socket.command<UpdateSnapshot>({ type: "update.check" }).catch((error) => {
+        setCommandError(error instanceof Error ? error.message : String(error))
+      })
+    }
+
+    window.addEventListener("focus", handleWindowFocus)
+    return () => {
+      window.removeEventListener("focus", handleWindowFocus)
+    }
+  }, [socket, updateSnapshot?.lastCheckedAt])
 
   useEffect(() => {
     return socket.subscribe<KeybindingsSnapshot>({ type: "keybindings" }, (snapshot) => {
@@ -534,6 +610,69 @@ export function useKannaState(activeChatId: string | null): KannaState {
     await startChatFromIntent({ kind: "project_request", project })
   }
 
+  async function handleListDirectories(localPath?: string) {
+    const url = new URL("/api/directories", window.location.origin)
+    if (localPath) {
+      url.searchParams.set("path", localPath)
+    }
+
+    const response = await fetch(url.toString())
+    if (!response.ok) {
+      let message = "Failed to load directories"
+      try {
+        const payload = await response.json() as { error?: string }
+        if (payload.error) {
+          message = payload.error
+        }
+      } catch {
+        // Ignore invalid JSON and keep the fallback message.
+      }
+      throw new Error(message)
+    }
+
+    const result = await response.json() as DirectoryBrowserSnapshot
+    setCommandError(null)
+    return result
+  }
+
+  async function handleCheckForUpdates(options?: { force?: boolean }) {
+    try {
+      await socket.command<UpdateSnapshot>({ type: "update.check", force: options?.force })
+      setCommandError(null)
+    } catch (error) {
+      setCommandError(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  async function handleInstallUpdate() {
+    try {
+      const result = await socket.command<UpdateInstallResult>({ type: "update.install" })
+      if (!result.ok) {
+        clearUiUpdateRestartPhase()
+        setCommandError(null)
+        await dialog.alert({
+          title: result.userTitle ?? "Update failed",
+          description: result.userMessage ?? "Kanna could not install the update. Try again later.",
+          closeLabel: "OK",
+        })
+        return
+      }
+
+      if (result.ok && result.action === "reload") {
+        window.location.reload()
+        return
+      }
+
+      if (result.ok && result.action === "restart") {
+        setUiUpdateRestartPhase("awaiting_disconnect")
+      }
+      setCommandError(null)
+    } catch (error) {
+      clearUiUpdateRestartPhase()
+      setCommandError(error instanceof Error ? error.message : String(error))
+    }
+  }
+
   async function handleSend(
     message: ChatUserMessage,
     options?: { provider?: AgentProvider; model?: string; modelOptions?: ModelOptions; planMode?: boolean }
@@ -743,6 +882,7 @@ export function useKannaState(activeChatId: string | null): KannaState {
     activeChatId,
     sidebarData,
     localProjects,
+    updateSnapshot,
     chatSnapshot,
     keybindings,
     connectionStatus,
@@ -781,7 +921,10 @@ export function useKannaState(activeChatId: string | null): KannaState {
     handleReorderFeatures,
     handleOpenLocalProject,
     handleHideLocalProject,
+    handleListDirectories,
     handleCreateProject,
+    handleCheckForUpdates,
+    handleInstallUpdate,
     handleSend,
     handleCancel,
     handleDeleteChat,

@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test"
-import { mkdtempSync, rmSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs"
+import { homedir, tmpdir } from "node:os"
 import path from "node:path"
-import type { KeybindingsSnapshot } from "../shared/types"
+import type { KeybindingsSnapshot, UpdateSnapshot } from "../shared/types"
 import { PROTOCOL_VERSION } from "../shared/types"
 import { createEmptyState } from "./events"
 import { GitManager } from "./git-manager"
@@ -35,6 +35,7 @@ function cleanupTempDirs() {
 
 const DEFAULT_KEYBINDINGS_SNAPSHOT: KeybindingsSnapshot = {
   bindings: {
+    submitChatMessage: ["enter"],
     toggleEmbeddedTerminal: ["cmd+j", "ctrl+`"],
     toggleRightSidebar: ["ctrl+b"],
     openInFinder: ["cmd+alt+f"],
@@ -43,6 +44,16 @@ const DEFAULT_KEYBINDINGS_SNAPSHOT: KeybindingsSnapshot = {
   },
   warning: null,
   filePathDisplay: "~/.kanna/keybindings.json",
+}
+
+const DEFAULT_UPDATE_SNAPSHOT: UpdateSnapshot = {
+  currentVersion: "0.12.0",
+  latestVersion: null,
+  status: "idle",
+  updateAvailable: false,
+  lastCheckedAt: null,
+  error: null,
+  installAction: "restart",
 }
 
 describe("ws-router", () => {
@@ -62,11 +73,11 @@ describe("ws-router", () => {
         getSnapshot: () => DEFAULT_KEYBINDINGS_SNAPSHOT,
         onChange: () => () => {},
       } as never,
-
       git: new GitManager(),
       refreshDiscovery: async () => [],
       getDiscoveredProjects: () => [],
       machineDisplayName: "Local Machine",
+      updateManager: null,
     })
     const ws = new FakeWebSocket()
 
@@ -107,11 +118,11 @@ describe("ws-router", () => {
         getSnapshot: () => DEFAULT_KEYBINDINGS_SNAPSHOT,
         onChange: () => () => {},
       } as never,
-
       git: new GitManager(),
       refreshDiscovery: async () => [],
       getDiscoveredProjects: () => [],
       machineDisplayName: "Local Machine",
+      updateManager: null,
     })
     const ws = new FakeWebSocket()
 
@@ -155,11 +166,11 @@ describe("ws-router", () => {
         getSnapshot: () => DEFAULT_KEYBINDINGS_SNAPSHOT,
         onChange: () => () => {},
       } as never,
-
       git: new GitManager(),
       refreshDiscovery: async () => [],
       getDiscoveredProjects: () => [],
       machineDisplayName: "Local Machine",
+      updateManager: null,
     })
     const ws = new FakeWebSocket()
 
@@ -229,6 +240,7 @@ describe("ws-router", () => {
       },
       getDiscoveredProjects: () => [],
       machineDisplayName: "Local Machine",
+      updateManager: null,
     })
     const ws = new FakeWebSocket()
 
@@ -281,11 +293,11 @@ describe("ws-router", () => {
         onEvent: () => () => {},
       } as never,
       keybindings: keybindings as never,
-
       git: new GitManager(),
       refreshDiscovery: async () => [],
       getDiscoveredProjects: () => [],
       machineDisplayName: "Local Machine",
+      updateManager: null,
     })
     const ws = new FakeWebSocket()
 
@@ -318,6 +330,7 @@ describe("ws-router", () => {
         command: {
           type: "settings.writeKeybindings",
           bindings: {
+            submitChatMessage: ["shift+enter"],
             toggleEmbeddedTerminal: ["cmd+k"],
             toggleRightSidebar: ["ctrl+shift+b"],
             openInFinder: ["cmd+shift+g"],
@@ -333,18 +346,142 @@ describe("ws-router", () => {
       v: PROTOCOL_VERSION,
       type: "ack",
       id: "keybindings-write-1",
-        result: {
-          bindings: {
-            toggleEmbeddedTerminal: ["cmd+k"],
-            toggleRightSidebar: ["ctrl+shift+b"],
-            openInFinder: ["cmd+shift+g"],
-            openInEditor: ["cmd+shift+p"],
-            addSplitTerminal: ["cmd+alt+j"],
-          },
-          warning: null,
-          filePathDisplay: "~/.kanna/keybindings.json",
+      result: {
+        bindings: {
+          submitChatMessage: ["shift+enter"],
+          toggleEmbeddedTerminal: ["cmd+k"],
+          toggleRightSidebar: ["ctrl+shift+b"],
+          openInFinder: ["cmd+shift+g"],
+          openInEditor: ["cmd+shift+p"],
+          addSplitTerminal: ["cmd+alt+j"],
+        },
+        warning: null,
+        filePathDisplay: "~/.kanna/keybindings.json",
+      },
+    })
+  })
+
+  test("subscribes to update snapshots and handles update.check commands", async () => {
+    const updateManager = {
+      snapshot: { ...DEFAULT_UPDATE_SNAPSHOT },
+      getSnapshot() {
+        return this.snapshot
+      },
+      onChange: () => () => {},
+      async checkForUpdates({ force }: { force?: boolean }) {
+        this.snapshot = {
+          ...this.snapshot,
+          latestVersion: force ? "0.13.0" : "0.12.1",
+          status: "available",
+          updateAvailable: true,
+          lastCheckedAt: 123,
+        }
+        return this.snapshot
+      },
+      async installUpdate() {
+        return {
+          ok: false,
+          action: "restart",
+          errorCode: "version_not_live_yet",
+          userTitle: "Update not live yet",
+          userMessage: "This update is still propagating. Try again in a few minutes.",
+        }
+      },
+    }
+
+    const router = createWsRouter({
+      store: { state: createEmptyState() } as never,
+      agent: { getActiveStatuses: () => new Map(), getLiveUsage: () => null } as never,
+      terminals: {
+        getSnapshot: () => null,
+        onEvent: () => () => {},
+      } as never,
+      keybindings: {
+        getSnapshot: () => DEFAULT_KEYBINDINGS_SNAPSHOT,
+        onChange: () => () => {},
+      } as never,
+      git: new GitManager(),
+      refreshDiscovery: async () => [],
+      getDiscoveredProjects: () => [],
+      machineDisplayName: "Local Machine",
+      updateManager: updateManager as never,
+    })
+    const ws = new FakeWebSocket()
+
+    router.handleMessage(
+      ws as never,
+      JSON.stringify({
+        v: 1,
+        type: "subscribe",
+        id: "update-sub-1",
+        topic: { type: "update" },
+      })
+    )
+
+    expect(ws.sent[0]).toEqual({
+      v: PROTOCOL_VERSION,
+      type: "snapshot",
+      id: "update-sub-1",
+      snapshot: {
+        type: "update",
+        data: DEFAULT_UPDATE_SNAPSHOT,
+      },
+    })
+
+    router.handleMessage(
+      ws as never,
+      JSON.stringify({
+        v: 1,
+        type: "command",
+        id: "update-check-1",
+        command: {
+          type: "update.check",
+          force: true,
         },
       })
+    )
+
+    await Promise.resolve()
+    expect(ws.sent[1]).toEqual({
+      v: PROTOCOL_VERSION,
+      type: "ack",
+      id: "update-check-1",
+      result: {
+        currentVersion: "0.12.0",
+        latestVersion: "0.13.0",
+        status: "available",
+        updateAvailable: true,
+        lastCheckedAt: 123,
+        error: null,
+        installAction: "restart",
+      },
+    })
+
+    router.handleMessage(
+      ws as never,
+      JSON.stringify({
+        v: 1,
+        type: "command",
+        id: "update-install-1",
+        command: {
+          type: "update.install",
+        },
+      })
+    )
+
+    await Promise.resolve()
+    expect(ws.sent[2]).toEqual({
+      v: PROTOCOL_VERSION,
+      type: "ack",
+      id: "update-install-1",
+      result: {
+        ok: false,
+        action: "restart",
+        errorCode: "version_not_live_yet",
+        userTitle: "Update not live yet",
+        userMessage: "This update is still propagating. Try again in a few minutes.",
+      },
+    })
   })
 
   test("project.open returns the newest existing chat when the project already has history", async () => {
@@ -371,7 +508,13 @@ describe("ws-router", () => {
     const store = {
       state: createEmptyState(),
       unhideProject: async () => {},
-      openProject: async () => ({ id: "project-1", localPath: "/tmp/project-1", title: "project-1" }),
+      openProject: async () => ({
+        id: "project-1",
+        repoKey: "path:/tmp/project-1",
+        localPath: "/tmp/project-1",
+        worktreePaths: ["/tmp/project-1"],
+        title: "project-1",
+      }),
       isProjectHidden: () => false,
       listChatsByProject: () => [...chatState.values()].sort((a, b) => (b.lastMessageAt ?? b.updatedAt) - (a.lastMessageAt ?? a.updatedAt)),
       createChat: async (projectId: string) => {
@@ -425,9 +568,12 @@ describe("ws-router", () => {
       refreshDiscovery: async () => [],
       getDiscoveredProjects: () => [],
       machineDisplayName: "Local Machine",
+      updateManager: null,
     })
     const ws = new FakeWebSocket()
     const homeDir = makeTempDir()
+    const projectDir = path.join(homeDir, "project-1")
+    mkdirSync(projectDir, { recursive: true })
     const originalHome = process.env.HOME
     process.env.HOME = homeDir
 
@@ -438,7 +584,7 @@ describe("ws-router", () => {
           v: 1,
           type: "command",
           id: "project-open-1",
-          command: { type: "project.open", localPath: "/tmp/project-1" },
+          command: { type: "project.open", localPath: projectDir },
         })
       )
 
@@ -457,6 +603,122 @@ describe("ws-router", () => {
           projectId: "project-1",
           chatId: "chat-existing",
           importedChats: 0,
+        },
+      },
+    ])
+  })
+
+  test("project.open rejects missing directories instead of creating them", async () => {
+    const router = createWsRouter({
+      store: {
+        state: createEmptyState(),
+        getChat: () => null,
+      } as never,
+      agent: { getActiveStatuses: () => new Map(), getLiveUsage: () => null } as never,
+      terminals: {
+        getSnapshot: () => null,
+        onEvent: () => () => {},
+      } as never,
+      keybindings: {
+        getSnapshot: () => DEFAULT_KEYBINDINGS_SNAPSHOT,
+        onChange: () => () => {},
+      } as never,
+      git: new GitManager(),
+      refreshDiscovery: async () => [],
+      getDiscoveredProjects: () => [],
+      machineDisplayName: "Local Machine",
+      updateManager: null,
+    })
+    const ws = new FakeWebSocket()
+    const homeDir = makeTempDir()
+    const missingProjectDir = path.join(homeDir, "missing-project")
+    const originalHome = process.env.HOME
+    process.env.HOME = homeDir
+
+    try {
+      router.handleMessage(
+        ws as never,
+        JSON.stringify({
+          v: 1,
+          type: "command",
+          id: "project-open-missing",
+          command: { type: "project.open", localPath: missingProjectDir },
+        })
+      )
+
+      await new Promise((resolve) => setTimeout(resolve, 25))
+    } finally {
+      process.env.HOME = originalHome
+      cleanupTempDirs()
+    }
+
+    expect(ws.sent).toEqual([
+      {
+        v: PROTOCOL_VERSION,
+        type: "error",
+        id: "project-open-missing",
+        message: `Project folder not found: ${missingProjectDir}`,
+      },
+    ])
+  })
+
+  test("system.listDirectory returns browsable host directories", async () => {
+    const router = createWsRouter({
+      store: {
+        state: createEmptyState(),
+        getChat: () => null,
+      } as never,
+      agent: { getActiveStatuses: () => new Map(), getLiveUsage: () => null } as never,
+      terminals: {
+        getSnapshot: () => null,
+        onEvent: () => () => {},
+      } as never,
+      keybindings: {
+        getSnapshot: () => DEFAULT_KEYBINDINGS_SNAPSHOT,
+        onChange: () => () => {},
+      } as never,
+      git: new GitManager(),
+      refreshDiscovery: async () => [],
+      getDiscoveredProjects: () => [],
+      machineDisplayName: "Local Machine",
+      updateManager: null,
+    })
+    const ws = new FakeWebSocket()
+    const homeDir = makeTempDir()
+    const childDir = path.join(homeDir, "alpha")
+    mkdirSync(childDir, { recursive: true })
+
+    try {
+      router.handleMessage(
+        ws as never,
+        JSON.stringify({
+          v: 1,
+          type: "command",
+          id: "list-directory-1",
+          command: { type: "system.listDirectory", localPath: homeDir },
+        })
+      )
+
+      await new Promise((resolve) => setTimeout(resolve, 25))
+    } finally {
+      cleanupTempDirs()
+    }
+
+    expect(ws.sent).toEqual([
+      {
+        v: PROTOCOL_VERSION,
+        type: "ack",
+        id: "list-directory-1",
+        result: {
+          currentPath: homeDir,
+          parentPath: path.dirname(homeDir) === homeDir ? null : path.dirname(homeDir),
+          roots: [
+            { name: "Home", localPath: homedir() },
+            { name: "/", localPath: "/" },
+          ],
+          entries: [
+            { name: "alpha", localPath: childDir },
+          ],
         },
       },
     ])

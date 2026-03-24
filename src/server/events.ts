@@ -25,11 +25,12 @@ export interface ChatRecord {
 
 export interface StoreState {
   projectsById: Map<string, ProjectRecord>
+  projectIdsByRepoKey: Map<string, string>
   projectIdsByPath: Map<string, string>
   featuresById: Map<string, FeatureRecord>
   chatsById: Map<string, ChatRecord>
   messagesByChatId: Map<string, TranscriptEntry[]>
-  hiddenProjectPaths: Set<string>
+  hiddenProjectKeys: Set<string>
 }
 
 export interface SnapshotFile {
@@ -39,7 +40,7 @@ export interface SnapshotFile {
   features: FeatureRecord[]
   chats: ChatRecord[]
   messages: Array<{ chatId: string; entries: TranscriptEntry[] }>
-  hiddenProjectPaths?: string[]
+  hiddenProjectKeys?: string[]
 }
 
 export type ProjectEvent = {
@@ -47,8 +48,16 @@ export type ProjectEvent = {
   type: "project_opened"
   timestamp: number
   projectId: string
+  repoKey: string
   localPath: string
+  worktreePaths: string[]
   title: string
+} | {
+  v: 3
+  type: "project_worktree_added"
+  timestamp: number
+  projectId: string
+  localPath: string
 } | {
   v: 3
   type: "project_removed"
@@ -58,12 +67,12 @@ export type ProjectEvent = {
   v: 3
   type: "project_hidden"
   timestamp: number
-  localPath: string
+  repoKey: string
 } | {
   v: 3
   type: "project_unhidden"
   timestamp: number
-  localPath: string
+  repoKey: string
 }
 
 export type FeatureEvent =
@@ -201,11 +210,12 @@ export type StoreEvent = ProjectEvent | FeatureEvent | ChatEvent | MessageEvent 
 export function createEmptyState(): StoreState {
   return {
     projectsById: new Map(),
+    projectIdsByRepoKey: new Map(),
     projectIdsByPath: new Map(),
     featuresById: new Map(),
     chatsById: new Map(),
     messagesByChatId: new Map(),
-    hiddenProjectPaths: new Set(),
+    hiddenProjectKeys: new Set(),
   }
 }
 

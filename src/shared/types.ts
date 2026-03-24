@@ -134,7 +134,9 @@ export const FEATURE_STAGE_LABELS: Record<FeatureStage, string> = {
 
 export interface ProjectSummary {
   id: string
+  repoKey: string
   localPath: string
+  worktreePaths: string[]
   title: string
   createdAt: number
   updatedAt: number
@@ -180,6 +182,7 @@ export interface SidebarFeatureRow {
 
 export interface SidebarProjectGroup {
   groupKey: string
+  title: string
   localPath: string
   features: SidebarFeatureRow[]
   generalChats: SidebarChatRow[]
@@ -197,15 +200,67 @@ export interface LocalProjectSummary {
   chatCount: number
 }
 
+export interface DirectoryBrowserEntry {
+  name: string
+  localPath: string
+}
+
+export interface DirectoryBrowserSnapshot {
+  currentPath: string
+  parentPath: string | null
+  roots: DirectoryBrowserEntry[]
+  entries: DirectoryBrowserEntry[]
+}
+
+export interface SuggestedProjectFolder {
+  label: string
+  localPath: string
+}
+
 export interface LocalProjectsSnapshot {
   machine: {
     id: "local"
     displayName: string
   }
   projects: LocalProjectSummary[]
+  suggestedFolders: SuggestedProjectFolder[]
+  rootDirectory: DirectoryBrowserSnapshot | null
+}
+
+export type UpdateStatus =
+  | "idle"
+  | "checking"
+  | "available"
+  | "up_to_date"
+  | "updating"
+  | "restart_pending"
+  | "error"
+
+export interface UpdateSnapshot {
+  currentVersion: string
+  latestVersion: string | null
+  status: UpdateStatus
+  updateAvailable: boolean
+  lastCheckedAt: number | null
+  error: string | null
+  installAction: "restart" | "reload"
+}
+
+export type UpdateInstallErrorCode =
+  | "version_not_live_yet"
+  | "install_failed"
+  | "command_missing"
+
+export interface UpdateInstallResult {
+  ok: boolean
+  action: "restart" | "reload"
+  errorCode: UpdateInstallErrorCode | null
+  userTitle: string | null
+  userMessage: string | null
 }
 
 export type KeybindingAction =
+  | "submitChatMessage"
   | "toggleEmbeddedTerminal"
   | "toggleRightSidebar"
   | "openInFinder"
@@ -213,6 +268,7 @@ export type KeybindingAction =
   | "addSplitTerminal"
 
 export const DEFAULT_KEYBINDINGS: Record<KeybindingAction, string[]> = {
+  submitChatMessage: ["enter"],
   toggleEmbeddedTerminal: ["cmd+j", "ctrl+`"],
   toggleRightSidebar: ["cmd+b", "ctrl+b"],
   openInFinder: ["cmd+alt+f", "ctrl+alt+f"],

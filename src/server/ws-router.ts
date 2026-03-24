@@ -8,9 +8,10 @@ import { EventStore } from "./event-store"
 import { openExternal } from "./external-open"
 import { GitManager } from "./git-manager"
 import { KeybindingsManager } from "./keybindings"
-import { ensureProjectDirectory } from "./paths"
+import { listProjectDirectories, requireProjectDirectory, ensureProjectDirectory } from "./paths"
 import { importProjectHistory } from "./recovery"
 import { TerminalManager } from "./terminal-manager"
+import type { UpdateManager } from "./update-manager"
 import { deriveChatSnapshot, deriveLocalProjectsSnapshot, deriveSidebarData } from "./read-models"
 import { applyThreadEstimate, mergeUsageSnapshots, reconstructClaudeUsage, reconstructCodexUsageFromFile } from "./usage"
 
@@ -27,6 +28,7 @@ interface CreateWsRouterArgs {
   refreshDiscovery: () => Promise<DiscoveredProject[]>
   getDiscoveredProjects: () => DiscoveredProject[]
   machineDisplayName: string
+  updateManager: UpdateManager | null
 }
 
 function send(ws: ServerWebSocket<ClientState>, message: ServerEnvelope) {
@@ -42,6 +44,7 @@ export function createWsRouter({
   refreshDiscovery,
   getDiscoveredProjects,
   machineDisplayName,
+  updateManager,
 }: CreateWsRouterArgs) {
   const sockets = new Set<ServerWebSocket<ClientState>>()
 
@@ -81,6 +84,26 @@ export function createWsRouter({
         snapshot: {
           type: "keybindings",
           data: keybindings.getSnapshot(),
+        },
+      }
+    }
+
+    if (topic.type === "update") {
+      return {
+        v: PROTOCOL_VERSION,
+        type: "snapshot",
+        id,
+        snapshot: {
+          type: "update",
+          data: updateManager?.getSnapshot() ?? {
+            currentVersion: "unknown",
+            latestVersion: null,
+            status: "idle",
+            updateAvailable: false,
+            lastCheckedAt: null,
+            error: null,
+            installAction: "restart",
+          },
         },
       }
     }
@@ -169,12 +192,54 @@ export function createWsRouter({
     }
   })
 
+  const disposeUpdateEvents = updateManager?.onChange(() => {
+    for (const ws of sockets) {
+      for (const [id, topic] of ws.data.subscriptions.entries()) {
+        if (topic.type !== "update") continue
+        send(ws, createEnvelope(id, topic))
+      }
+    }
+  }) ?? (() => {})
+
   async function handleCommand(ws: ServerWebSocket<ClientState>, message: Extract<ClientEnvelope, { type: "command" }>) {
     const { command, id } = message
     try {
       switch (command.type) {
         case "system.ping": {
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id })
+          return
+        }
+        case "system.listDirectory": {
+          const directory = await listProjectDirectories(command.localPath)
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: directory })
+          return
+        }
+        case "update.check": {
+          const snapshot = updateManager
+            ? await updateManager.checkForUpdates({ force: command.force })
+            : {
+                currentVersion: "unknown",
+                latestVersion: null,
+                status: "error",
+                updateAvailable: false,
+                lastCheckedAt: Date.now(),
+                error: "Update manager unavailable.",
+                installAction: "restart",
+              }
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: snapshot })
+          return
+        }
+        case "update.install": {
+          if (!updateManager) {
+            throw new Error("Update manager unavailable.")
+          }
+          const result = await updateManager.installUpdate()
+          send(ws, {
+            v: PROTOCOL_VERSION,
+            type: "ack",
+            id,
+            result,
+          })
           return
         }
         case "settings.readKeybindings": {
@@ -187,13 +252,15 @@ export function createWsRouter({
           return
         }
         case "project.open": {
-          await ensureProjectDirectory(command.localPath)
+          await requireProjectDirectory(command.localPath)
           await store.unhideProject(command.localPath)
           const project = await store.openProject(command.localPath)
           const imported = await importProjectHistory({
             store,
             projectId: project.id,
+            repoKey: project.repoKey,
             localPath: project.localPath,
+            worktreePaths: project.worktreePaths,
           })
           await refreshDiscovery()
           send(ws, {
@@ -215,7 +282,9 @@ export function createWsRouter({
           const imported = await importProjectHistory({
             store,
             projectId: project.id,
+            repoKey: project.repoKey,
             localPath: project.localPath,
+            worktreePaths: project.worktreePaths,
           })
           await refreshDiscovery()
           send(ws, {
@@ -236,7 +305,9 @@ export function createWsRouter({
             await agent.cancel(chat.id)
           }
           if (project) {
-            terminals.closeByCwd(project.localPath)
+            for (const worktreePath of project.worktreePaths) {
+              terminals.closeByCwd(worktreePath)
+            }
             await store.hideProject(project.localPath)
           }
           await store.removeProject(command.projectId)
@@ -250,7 +321,9 @@ export function createWsRouter({
             for (const chat of store.listChatsByProject(existingProject.id)) {
               await agent.cancel(chat.id)
             }
-            terminals.closeByCwd(existingProject.localPath)
+            for (const worktreePath of existingProject.worktreePaths) {
+              terminals.closeByCwd(worktreePath)
+            }
             await store.removeProject(existingProject.id)
           }
           await store.hideProject(command.localPath)
@@ -431,6 +504,7 @@ export function createWsRouter({
     dispose() {
       disposeTerminalEvents()
       disposeKeybindingEvents()
+      disposeUpdateEvents()
     },
   }
 }

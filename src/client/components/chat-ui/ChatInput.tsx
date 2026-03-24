@@ -6,12 +6,14 @@ import {
   type ChatUserMessage,
   type ClaudeReasoningEffort,
   type CodexReasoningEffort,
+  type KeybindingsSnapshot,
   type ModelOptions,
   type ProviderCatalogEntry,
   MAX_CHAT_ATTACHMENTS,
   MAX_CHAT_IMAGE_BYTES,
   SUPPORTED_CHAT_IMAGE_MIME_TYPES
 } from "../../../shared/types"
+import { actionMatchesEvent } from "../../lib/keybindings"
 import { Button } from "../ui/button"
 import { Textarea } from "../ui/textarea"
 import { cn, generateUUID } from "../../lib/utils"
@@ -64,6 +66,7 @@ interface Props {
   chatId?: string | null
   activeProvider: AgentProvider | null
   availableProviders: ProviderCatalogEntry[]
+  keybindings: KeybindingsSnapshot | null
 }
 
 function logChatInput(message: string, details?: unknown) {
@@ -115,6 +118,57 @@ function createLockedComposerState(
   }
 }
 
+export function shouldSubmitChatInput(
+  event: KeyboardEvent,
+  keybindings: KeybindingsSnapshot | null,
+  canCancel: boolean | undefined
+) {
+  return actionMatchesEvent(keybindings, "submitChatMessage", event) && !canCancel && !event.isComposing
+}
+
+export function getCompactComposerLabels({
+  selectedProvider,
+  codexFastMode,
+  planMode,
+}: {
+  selectedProvider: AgentProvider
+  codexFastMode: boolean
+  planMode: boolean
+}) {
+  return {
+    providerText: selectedProvider === "codex" ? null : selectedProvider,
+    codexModeText: codexFastMode ? "Fast" : "Std",
+    planModeText: planMode ? "Plan" : "Access",
+  }
+}
+
+export function resolvePlanModeState(args: {
+  providerLocked: boolean
+  planMode: boolean
+  selectedProvider: AgentProvider
+  composerState: ComposerState
+  providerDefaults: ReturnType<typeof useChatPreferencesStore.getState>["providerDefaults"]
+  lockedComposerState: ComposerState | null
+}) {
+  if (!args.providerLocked) {
+    return {
+      composerPlanMode: args.planMode,
+      lockedComposerState: args.lockedComposerState,
+    }
+  }
+
+  const nextLockedState = args.lockedComposerState
+    ?? createLockedComposerState(args.selectedProvider, args.composerState, args.providerDefaults)
+
+  return {
+    composerPlanMode: args.composerState.planMode,
+    lockedComposerState: {
+      ...nextLockedState,
+      planMode: args.planMode,
+    } satisfies ComposerState,
+  }
+}
+
 const ChatInputInner = forwardRef<HTMLTextAreaElement, Props>(function ChatInput({
   onSubmit,
   onCancel,
@@ -123,6 +177,7 @@ const ChatInputInner = forwardRef<HTMLTextAreaElement, Props>(function ChatInput
   chatId,
   activeProvider,
   availableProviders,
+  keybindings,
 }, forwardedRef) {
   const { getDraft, setDraft, clearDraft } = useChatInputStore()
   const {
@@ -242,6 +297,28 @@ const ChatInputInner = forwardRef<HTMLTextAreaElement, Props>(function ChatInput
     setComposerModelOptions({ reasoningEffort: reasoningEffort as CodexReasoningEffort })
   }
 
+  function setEffectivePlanMode(planMode: boolean) {
+    const nextState = resolvePlanModeState({
+      providerLocked,
+      planMode,
+      selectedProvider,
+      composerState,
+      providerDefaults,
+      lockedComposerState,
+    })
+
+    if (nextState.lockedComposerState !== lockedComposerState) {
+      setLockedComposerState(nextState.lockedComposerState)
+    }
+    if (nextState.composerPlanMode !== composerState.planMode) {
+      setComposerPlanMode(nextState.composerPlanMode)
+    }
+  }
+
+  function toggleEffectivePlanMode() {
+    setEffectivePlanMode(!providerPrefs.planMode)
+  }
+
   async function handleSubmit() {
     if (!value.trim() && images.length === 0) return
     const nextValue = value
@@ -350,7 +427,7 @@ const ChatInputInner = forwardRef<HTMLTextAreaElement, Props>(function ChatInput
 
     if (event.key === "Tab" && event.shiftKey && showPlanMode) {
       event.preventDefault()
-      setComposerPlanMode(!providerPrefs.planMode)
+      toggleEffectivePlanMode()
       return
     }
 
@@ -359,9 +436,7 @@ const ChatInputInner = forwardRef<HTMLTextAreaElement, Props>(function ChatInput
       onCancel?.()
       return
     }
-
-    const isTouchDevice = "ontouchstart" in window || navigator.maxTouchPoints > 0
-    if (event.key === "Enter" && !event.shiftKey && !canCancel && !isTouchDevice) {
+    if (shouldSubmitChatInput(event.nativeEvent, keybindings, canCancel)) {
       event.preventDefault()
       void handleSubmit()
     }
@@ -538,17 +613,7 @@ const ChatInputInner = forwardRef<HTMLTextAreaElement, Props>(function ChatInput
           setComposerModelOptions({ fastMode })
         }}
         planMode={providerPrefs.planMode}
-        onPlanModeChange={(planMode) => {
-          if (providerLocked) {
-            setLockedComposerState((current) => {
-              const next = current ?? createLockedComposerState(selectedProvider, composerState, providerDefaults)
-              return { ...next, planMode }
-            })
-            return
-          }
-
-          setComposerPlanMode(planMode)
-        }}
+        onPlanModeChange={setEffectivePlanMode}
         includePlanMode={showPlanMode}
         className="max-w-[840px] mx-auto mt-2"
       />

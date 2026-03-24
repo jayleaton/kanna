@@ -127,7 +127,7 @@ function SortableProjectGroup({
         <Tooltip>
           <TooltipTrigger asChild>
             <span className="truncate max-w-[180px] whitespace-nowrap text-sm text-slate-500 dark:text-slate-400">
-              {getPathBasename(localPath)}
+              {group.title || getPathBasename(localPath)}
             </span>
           </TooltipTrigger>
           <TooltipContent side="right" sideOffset={4}>
