@@ -41,6 +41,40 @@ describe("EventStore", () => {
     expect(store.dataDir).toEndWith("/.kanna-dev/data")
   })
 
+  test("persists project browser state across reload", async () => {
+    const sandboxDir = makeTempDir()
+    const dataDir = path.join(sandboxDir, "data")
+    const projectDir = path.join(sandboxDir, "project")
+    mkdirSync(projectDir, { recursive: true })
+    const store = new EventStore(dataDir)
+    await store.initialize()
+
+    const project = await store.openProject(projectDir, "Project")
+    await store.setProjectBrowserState(project.id, "CLOSED")
+
+    const reloaded = new EventStore(dataDir)
+    await reloaded.initialize()
+
+    expect(reloaded.getProject(project.id)?.browserState).toBe("CLOSED")
+  })
+
+  test("persists general chats browser state across reload", async () => {
+    const sandboxDir = makeTempDir()
+    const dataDir = path.join(sandboxDir, "data")
+    const projectDir = path.join(sandboxDir, "project")
+    mkdirSync(projectDir, { recursive: true })
+    const store = new EventStore(dataDir)
+    await store.initialize()
+
+    const project = await store.openProject(projectDir, "Project")
+    await store.setProjectGeneralChatsBrowserState(project.id, "CLOSED")
+
+    const reloaded = new EventStore(dataDir)
+    await reloaded.initialize()
+
+    expect(reloaded.getProject(project.id)?.generalChatsBrowserState).toBe("CLOSED")
+  })
+
   test("creates a feature directory and overview, then moves chats to general when deleted", async () => {
     const sandboxDir = makeTempDir()
     const dataDir = path.join(sandboxDir, "data")
@@ -246,6 +280,8 @@ describe("EventStore", () => {
         localPath: repoDir,
         worktreePaths: [repoDir],
         title: "kanna",
+        browserState: "OPEN",
+        generalChatsBrowserState: "OPEN",
         createdAt: 1,
         updatedAt: 1,
       }],

@@ -35,6 +35,8 @@ interface Props {
   projectGroups: SidebarProjectGroup[]
   collapsedSections: Set<string>
   onToggleSection: (key: string) => void
+  onSetProjectBrowserState?: (projectId: string, browserState: FeatureBrowserState) => void
+  onSetProjectGeneralChatsBrowserState?: (projectId: string, browserState: FeatureBrowserState) => void
   renderChatRow: (
     chat: SidebarChatRow,
     options?: {
@@ -334,6 +336,8 @@ function SortableProjectGroup({
   onCreateFeature,
   onRenameFeature,
   onDeleteFeature,
+  onSetProjectBrowserState,
+  onSetProjectGeneralChatsBrowserState,
   onSetFeatureBrowserState,
   onSetFeatureStage,
   onSetChatFeature,
@@ -379,6 +383,16 @@ function SortableProjectGroup({
   const style = {
     transform: CSS.Translate.toString(transform),
     transition,
+  }
+
+  function toggleProjectSection() {
+    onToggleSection(projectKey)
+    onSetProjectBrowserState?.(groupKey, showProjectBody ? "CLOSED" : "OPEN")
+  }
+
+  function toggleGeneralChatsSection() {
+    onToggleSection(generalChatsKey)
+    onSetProjectGeneralChatsBrowserState?.(groupKey, showGeneralChats ? "CLOSED" : "OPEN")
   }
 
   // ── Touch drag helpers ───────────────────────────────────────────────────
@@ -430,7 +444,7 @@ function SortableProjectGroup({
   const projectHeaderRef = useRef<HTMLDivElement | null>(null)
   const { touchRef: projectTouchRef } = useTouchInteraction({
     enabled: isTouchDevice && !!onRemoveProject,
-    onTap: () => onToggleSection(projectKey),
+    onTap: toggleProjectSection,
     onContextMenu: (pos) => setProjectMobileMenuPos(pos),
     // No drag callbacks — dnd-kit handles project group reordering
   })
@@ -448,7 +462,7 @@ function SortableProjectGroup({
         "sticky top-0 bg-background dark:bg-card z-10 relative p-[10px] flex items-center justify-between cursor-grab active:cursor-grabbing select-none",
         isDragging && "cursor-grabbing"
       )}
-      onClick={!isTouchDevice ? () => onToggleSection(projectKey) : undefined}
+      onClick={!isTouchDevice ? toggleProjectSection : undefined}
       {...listeners}
     >
       <div className="flex items-center gap-2 min-w-0">
@@ -592,7 +606,7 @@ function SortableProjectGroup({
               {folderGroupsEnabled ? (
                 <button
                   type="button"
-                  onClick={() => onToggleSection(generalChatsKey)}
+                  onClick={toggleGeneralChatsSection}
                   className="flex w-full items-center gap-2 px-4 py-1 text-left text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground"
                 >
                   <ChevronRight className={cn("size-3 transition-transform", showGeneralChats && "rotate-90")} />
@@ -639,6 +653,8 @@ export function LocalProjectsSection({
   projectGroups,
   collapsedSections,
   onToggleSection,
+  onSetProjectBrowserState,
+  onSetProjectGeneralChatsBrowserState,
   renderChatRow,
   onNewLocalChat,
   onCreateFeature,
@@ -704,6 +720,8 @@ export function LocalProjectsSection({
             group={group}
             collapsedSections={collapsedSections}
             onToggleSection={onToggleSection}
+            onSetProjectBrowserState={onSetProjectBrowserState}
+            onSetProjectGeneralChatsBrowserState={onSetProjectGeneralChatsBrowserState}
             renderChatRow={renderChatRow}
             onNewLocalChat={onNewLocalChat}
             onCreateFeature={onCreateFeature}

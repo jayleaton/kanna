@@ -76,6 +76,8 @@ export function deriveSidebarData(
       groupKey: project.id,
       title: project.title,
       localPath: project.localPath,
+      browserState: project.browserState,
+      generalChatsBrowserState: project.generalChatsBrowserState,
       features,
       generalChats: chats.filter((chat) => !chat.featureId),
     }

@@ -11,6 +11,8 @@ describe("read models", () => {
       localPath: "/tmp/project",
       worktreePaths: ["/tmp/project"],
       title: "Project",
+      browserState: "OPEN",
+      generalChatsBrowserState: "OPEN",
       createdAt: 1,
       updatedAt: 1,
     })
@@ -31,6 +33,8 @@ describe("read models", () => {
     const sidebar = deriveSidebarData(state, new Map())
     expect(sidebar.projectGroups[0]?.generalChats[0]?.provider).toBe("codex")
     expect(sidebar.projectGroups[0]?.title).toBe("Project")
+    expect(sidebar.projectGroups[0]?.browserState).toBe("OPEN")
+    expect(sidebar.projectGroups[0]?.generalChatsBrowserState).toBe("OPEN")
   })
 
   test("includes available providers in chat snapshots", () => {
@@ -41,6 +45,8 @@ describe("read models", () => {
       localPath: "/tmp/project",
       worktreePaths: ["/tmp/project"],
       title: "Project",
+      browserState: "OPEN",
+      generalChatsBrowserState: "OPEN",
       createdAt: 1,
       updatedAt: 1,
     })
@@ -92,6 +98,8 @@ describe("read models", () => {
       localPath: "/tmp/project",
       worktreePaths: ["/tmp/project"],
       title: "Saved Project",
+      browserState: "OPEN",
+      generalChatsBrowserState: "OPEN",
       createdAt: 1,
       updatedAt: 50,
     })
@@ -141,6 +149,8 @@ describe("read models", () => {
       localPath: "/tmp/project",
       worktreePaths: ["/tmp/project"],
       title: "Hidden Project",
+      browserState: "OPEN",
+      generalChatsBrowserState: "OPEN",
       createdAt: 1,
       updatedAt: 1,
     })
@@ -160,6 +170,8 @@ describe("read models", () => {
       localPath: "/tmp/project",
       worktreePaths: ["/tmp/project"],
       title: "Project",
+      browserState: "OPEN",
+      generalChatsBrowserState: "CLOSED",
       createdAt: 1,
       updatedAt: 1,
     })

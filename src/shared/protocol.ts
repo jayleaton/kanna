@@ -49,6 +49,8 @@ export type ClientCommand =
   | { type: "project.open"; localPath: string }
   | { type: "project.create"; localPath: string; title: string }
   | { type: "project.remove"; projectId: string }
+  | { type: "project.setBrowserState"; projectId: string; browserState: FeatureBrowserState }
+  | { type: "project.setGeneralChatsBrowserState"; projectId: string; browserState: FeatureBrowserState }
   | { type: "project.hide"; localPath: string }
   | { type: "project.setKannaDirectoryCommitMode"; projectId?: string; localPath?: string; commitKanna: boolean }
   | { type: "system.listDirectory"; localPath?: string }

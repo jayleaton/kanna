@@ -374,6 +374,98 @@ describe("ws-router", () => {
     expect(ws.sent).toEqual([{ v: PROTOCOL_VERSION, type: "ack", id: "feature-browser-state-1" }])
   })
 
+  test("routes project browser state updates to the store", async () => {
+    const calls: Array<{ projectId: string; browserState: string }> = []
+    const router = createWsRouter({
+      store: {
+        state: createEmptyState(),
+        getChat: () => null,
+        getMessages: () => [],
+        setProjectBrowserState: async (projectId: string, browserState: string) => {
+          calls.push({ projectId, browserState })
+        },
+      } as never,
+      agent: { getActiveStatuses: () => new Map(), getLiveUsage: () => null } as never,
+      terminals: {
+        getSnapshot: () => null,
+        onEvent: () => () => {},
+      } as never,
+      keybindings: {
+        getSnapshot: () => DEFAULT_KEYBINDINGS_SNAPSHOT,
+        onChange: () => () => {},
+      } as never,
+      git: new GitManager(),
+      refreshDiscovery: async () => [],
+      getDiscoveredProjects: () => [],
+      machineDisplayName: "Local Machine",
+      updateManager: null,
+    })
+    const ws = new FakeWebSocket()
+
+    await router.handleMessage(
+      ws as never,
+      JSON.stringify({
+        v: 1,
+        type: "command",
+        id: "project-browser-state-1",
+        command: {
+          type: "project.setBrowserState",
+          projectId: "project-1",
+          browserState: "CLOSED",
+        },
+      })
+    )
+
+    expect(calls).toEqual([{ projectId: "project-1", browserState: "CLOSED" }])
+    expect(ws.sent).toEqual([{ v: PROTOCOL_VERSION, type: "ack", id: "project-browser-state-1" }])
+  })
+
+  test("routes general chats browser state updates to the store", async () => {
+    const calls: Array<{ projectId: string; browserState: string }> = []
+    const router = createWsRouter({
+      store: {
+        state: createEmptyState(),
+        getChat: () => null,
+        getMessages: () => [],
+        setProjectGeneralChatsBrowserState: async (projectId: string, browserState: string) => {
+          calls.push({ projectId, browserState })
+        },
+      } as never,
+      agent: { getActiveStatuses: () => new Map(), getLiveUsage: () => null } as never,
+      terminals: {
+        getSnapshot: () => null,
+        onEvent: () => () => {},
+      } as never,
+      keybindings: {
+        getSnapshot: () => DEFAULT_KEYBINDINGS_SNAPSHOT,
+        onChange: () => () => {},
+      } as never,
+      git: new GitManager(),
+      refreshDiscovery: async () => [],
+      getDiscoveredProjects: () => [],
+      machineDisplayName: "Local Machine",
+      updateManager: null,
+    })
+    const ws = new FakeWebSocket()
+
+    await router.handleMessage(
+      ws as never,
+      JSON.stringify({
+        v: 1,
+        type: "command",
+        id: "project-general-chats-browser-state-1",
+        command: {
+          type: "project.setGeneralChatsBrowserState",
+          projectId: "project-1",
+          browserState: "CLOSED",
+        },
+      })
+    )
+
+    expect(calls).toEqual([{ projectId: "project-1", browserState: "CLOSED" }])
+    expect(ws.sent).toEqual([{ v: PROTOCOL_VERSION, type: "ack", id: "project-general-chats-browser-state-1" }])
+  })
+
   test("updates .gitignore commit mode using a local project path", async () => {
     const calls: Array<{ localPath: string; commitKanna: boolean }> = []
     const router = createWsRouter({
