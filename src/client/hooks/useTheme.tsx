@@ -1,6 +1,8 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react"
+import { createContext, useContext, useEffect, useMemo, type ReactNode } from "react"
+import { useThemeSettingsStore } from "../stores/themeSettingsStore"
+import type { ThemePreference } from "../../shared/types"
 
-export type ThemePreference = "light" | "dark" | "system"
+export type { ThemePreference }
 
 interface ThemeContextValue {
   theme: ThemePreference
@@ -8,15 +10,17 @@ interface ThemeContextValue {
   setTheme: (theme: ThemePreference) => void
 }
 
-const THEME_STORAGE_KEY = "lever-theme"
+// Keep this key for one-time migration from old localStorage storage
+const LEGACY_THEME_STORAGE_KEY = "lever-theme"
 const MANIFEST_HREF_BY_THEME = {
   light: "/manifest.webmanifest",
   dark: "/manifest-dark.webmanifest",
+  custom: "/manifest-dark.webmanifest",
 } as const
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined)
 
 const isValidTheme = (value: string | null): value is ThemePreference => {
-  return value === "light" || value === "dark" || value === "system"
+  return value === "light" || value === "dark" || value === "system" || value === "custom"
 }
 
 const getSystemTheme = (): "light" | "dark" => {
@@ -24,9 +28,14 @@ const getSystemTheme = (): "light" | "dark" => {
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"
 }
 
-const applyThemeClass = (preference: ThemePreference) => {
+const applyThemeClass = (preference: ThemePreference, customAppearance?: "light" | "dark" | "system") => {
   if (typeof document === "undefined") return
-  const resolved = preference === "system" ? getSystemTheme() : preference
+  let resolved: "light" | "dark"
+  if (preference === "custom") {
+    resolved = (customAppearance === "system" || !customAppearance) ? getSystemTheme() : customAppearance
+  } else {
+    resolved = preference === "system" ? getSystemTheme() : preference
+  }
   document.documentElement.classList.toggle("dark", resolved === "dark")
 }
 
@@ -50,28 +59,40 @@ const syncThemeMeta = (resolvedTheme: "light" | "dark") => {
   }
 }
 
-const getInitialTheme = (): ThemePreference => {
-  if (typeof window === "undefined") return "system"
-  const stored = window.localStorage.getItem(THEME_STORAGE_KEY)
-  return isValidTheme(stored) ? stored : "system"
-}
-
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setTheme] = useState<ThemePreference>(getInitialTheme)
+  const theme = useThemeSettingsStore((state) => state.themePreference)
+  const setThemePreference = useThemeSettingsStore((state) => state.setThemePreference)
+  const colorTheme = useThemeSettingsStore((state) => state.colorTheme)
+  const customAppearance = useThemeSettingsStore((state) => state.customAppearance)
+  const backgroundImage = useThemeSettingsStore((state) => state.backgroundImage)
+  const backgroundOpacity = useThemeSettingsStore((state) => state.backgroundOpacity)
+  const backgroundBlur = useThemeSettingsStore((state) => state.backgroundBlur)
 
+  // One-time migration from old localStorage key to Zustand store
   useEffect(() => {
-    applyThemeClass(theme)
-    syncThemeMeta(theme === "system" ? getSystemTheme() : theme)
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(THEME_STORAGE_KEY, theme)
+    if (typeof window === "undefined") return
+    const legacy = window.localStorage.getItem(LEGACY_THEME_STORAGE_KEY)
+    if (isValidTheme(legacy)) {
+      const stored = useThemeSettingsStore.getState().themePreference
+      if (stored === "system" && legacy !== "system") {
+        setThemePreference(legacy)
+      }
+      window.localStorage.removeItem(LEGACY_THEME_STORAGE_KEY)
     }
-  }, [theme])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
-    if (theme !== "system") return
+    applyThemeClass(theme, customAppearance)
+    const resolvedTheme = theme === "custom" ? (customAppearance === "system" ? getSystemTheme() : customAppearance) : (theme === "system" ? getSystemTheme() : theme)
+    syncThemeMeta(resolvedTheme)
+  }, [theme, customAppearance])
+
+  useEffect(() => {
+    if (theme !== "system" && (theme !== "custom" || customAppearance !== "system")) return
     const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)")
     const handleChange = () => {
-      applyThemeClass("system")
+      applyThemeClass(theme, customAppearance)
       syncThemeMeta(getSystemTheme())
     }
 
@@ -82,12 +103,98 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
     mediaQuery.addListener(handleChange)
     return () => mediaQuery.removeListener(handleChange)
-  }, [theme])
+  }, [theme, customAppearance])
+
+  useEffect(() => {
+    if (typeof document === "undefined") return
+    if (theme === "custom") {
+      document.documentElement.setAttribute("data-theme", colorTheme)
+    } else {
+      document.documentElement.removeAttribute("data-theme")
+    }
+  }, [theme, colorTheme])
+
+  useEffect(() => {
+    if (typeof document === "undefined") return
+
+    let styleEl = document.getElementById("kanna-custom-theme-styles")
+    if (!styleEl) {
+      styleEl = document.createElement("style")
+      styleEl.id = "kanna-custom-theme-styles"
+      document.head.appendChild(styleEl)
+    }
+
+    const hasBg = theme === "custom" && backgroundImage && backgroundImage.trim() !== ""
+    const css = []
+
+    if (hasBg) {
+      const spread = backgroundBlur ? backgroundBlur * 2 : 0;
+      css.push(`
+        body {
+          background-image: none !important;
+          background-color: transparent !important;
+        }
+        body::before {
+          content: "";
+          position: fixed;
+          top: -${spread}px;
+          left: -${spread}px;
+          right: -${spread}px;
+          bottom: -${spread}px;
+          background-image: url("${backgroundImage}");
+          background-size: cover;
+          background-position: center;
+          filter: blur(${backgroundBlur}px);
+          z-index: -2;
+          pointer-events: none;
+        }
+        body::after {
+          content: "";
+          position: fixed;
+          inset: 0;
+          background-color: hsl(var(--background) / ${backgroundOpacity});
+          z-index: -1;
+          pointer-events: none;
+        }
+        #root {
+          background-color: transparent !important;
+        }
+        :root {
+          --color-background: transparent !important;
+          --color-card: hsl(var(--card) / 0.15) !important;
+          --color-popover: hsl(var(--popover) / 0.8) !important;
+          --color-muted: hsl(var(--muted) / 0.25) !important;
+        }
+        .kanna-terminal, .xterm-viewport, .xterm-screen {
+          background-color: transparent !important;
+        }
+      `)
+    } else {
+      css.push(`
+        body {
+          background-image: none !important;
+        }
+        body::before {
+          display: none;
+        }
+        #root {
+          background-color: transparent;
+        }
+      `)
+    }
+
+    styleEl.textContent = css.join("\n")
+  }, [theme, backgroundImage, backgroundOpacity, backgroundBlur])
+
+  const setTheme = (next: ThemePreference) => {
+    setThemePreference(next)
+  }
 
   const value = useMemo<ThemeContextValue>(() => {
-    const resolvedTheme = theme === "system" ? getSystemTheme() : theme
+    const resolvedTheme = theme === "custom" ? (customAppearance === "system" ? getSystemTheme() : customAppearance) : (theme === "system" ? getSystemTheme() : theme)
     return { theme, resolvedTheme, setTheme }
-  }, [theme])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [theme, customAppearance, setThemePreference])
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
 }

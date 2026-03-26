@@ -421,8 +421,8 @@ export function KannaSidebar({
         ref={sidebarRef}
         data-sidebar="open"
         className={cn(
-          "fixed inset-0 z-50 bg-background dark:bg-card flex flex-col h-[100dvh] select-none",
-          "md:relative md:inset-auto md:flex-none md:mr-0 md:h-[calc(100dvh-16px)] md:my-2 md:ml-2 md:border md:border-border md:rounded-2xl",
+          "fixed inset-0 z-50 bg-background dark:bg-card backdrop-blur-2xl flex flex-col h-[100dvh] select-none",
+          "md:relative md:inset-auto md:bg-background md:dark:bg-card md:backdrop-blur-none md:flex-none md:mr-0 md:h-[calc(100dvh-16px)] md:my-2 md:ml-2 md:border md:border-border md:rounded-2xl",
           open ? "flex" : "hidden md:flex",
           collapsed && "md:hidden"
         )}
@@ -592,7 +592,7 @@ export function KannaSidebar({
         </div>
       </div>
 
-      {open ? <div className="fixed inset-0 bg-black/40 z-40 md:hidden" onClick={onClose} /> : null}
+      {/* No overlay needed – mobile sidebar is full-screen (fixed inset-0) */}
     </>
   )
 }

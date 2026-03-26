@@ -335,6 +335,32 @@ export interface KeybindingsSnapshot {
   filePathDisplay: string
 }
 
+export type ThemePreference = "light" | "dark" | "system" | "custom"
+export type ColorTheme = "default" | "tokyo-night" | "catppuccin" | "dracula" | "nord" | "everforest" | "rose-pine"
+export type CustomAppearance = "light" | "dark" | "system"
+
+export interface ThemeSettingsSnapshot {
+  settings: {
+    themePreference: ThemePreference
+    colorTheme: ColorTheme
+    customAppearance: CustomAppearance
+    backgroundImage: string | null
+    backgroundOpacity: number
+    backgroundBlur: number
+  }
+  warning: string | null
+  filePathDisplay: string
+}
+
+export const DEFAULT_THEME_SETTINGS: ThemeSettingsSnapshot["settings"] = {
+  themePreference: "system",
+  colorTheme: "default",
+  customAppearance: "system",
+  backgroundImage: null,
+  backgroundOpacity: 1,
+  backgroundBlur: 0,
+}
+
 export interface McpServerInfo {
   name: string
   status: string

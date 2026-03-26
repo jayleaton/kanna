@@ -55,6 +55,14 @@ export function getKeybindingsFilePathDisplay(env: RuntimeEnv = getRuntimeEnv())
   return `${getDataRootDirDisplay(env)}/keybindings.json`
 }
 
+export function getThemeSettingsFilePath(homeDir: string, env: RuntimeEnv = getRuntimeEnv()) {
+  return `${getDataRootDir(homeDir, env)}/theme.json`
+}
+
+export function getThemeSettingsFilePathDisplay(env: RuntimeEnv = getRuntimeEnv()) {
+  return `${getDataRootDirDisplay(env)}/theme.json`
+}
+
 export function getCliInvocation(arg?: string) {
   return arg ? `${CLI_COMMAND} ${arg}` : CLI_COMMAND
 }

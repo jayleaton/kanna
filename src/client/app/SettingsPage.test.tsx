@@ -6,6 +6,7 @@ import {
   buildKeybindingPayload,
   fetchGithubReleases,
   formatPublishedDate,
+  getBackgroundSelectionAdjustments,
   getGeneralHeaderAction,
   getCachedChangelog,
   getKeybindingsSubtitle,
@@ -236,6 +237,41 @@ describe("getSettingsCloseTarget", () => {
     expect(getSettingsCloseTarget({ idx: 0 })).toBe("home")
     expect(getSettingsCloseTarget({ key: "abc" })).toBe("home")
     expect(getSettingsCloseTarget(null)).toBe("home")
+  })
+})
+
+describe("getBackgroundSelectionAdjustments", () => {
+  test("reduces opacity and adds blur when selecting a background for a custom theme with full opacity", () => {
+    expect(getBackgroundSelectionAdjustments({
+      themePreference: "custom",
+      nextBackgroundImage: "/api/backgrounds/mountain",
+      backgroundOpacity: 1,
+    })).toEqual({
+      backgroundOpacity: 0.85,
+      backgroundBlur: 6,
+    })
+  })
+
+  test("does not override background settings when opacity is already below full", () => {
+    expect(getBackgroundSelectionAdjustments({
+      themePreference: "custom",
+      nextBackgroundImage: "/api/backgrounds/mountain",
+      backgroundOpacity: 0.9,
+    })).toEqual({})
+  })
+
+  test("does not override background settings outside the custom theme or without a background", () => {
+    expect(getBackgroundSelectionAdjustments({
+      themePreference: "dark",
+      nextBackgroundImage: "/api/backgrounds/mountain",
+      backgroundOpacity: 1,
+    })).toEqual({})
+
+    expect(getBackgroundSelectionAdjustments({
+      themePreference: "custom",
+      nextBackgroundImage: null,
+      backgroundOpacity: 1,
+    })).toEqual({})
   })
 })
 

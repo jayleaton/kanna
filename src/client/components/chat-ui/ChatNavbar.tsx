@@ -54,10 +54,10 @@ export function ChatNavbar({
   }
 
   const usageTone = usage?.warnings.includes("context_critical") || usage?.warnings.includes("rate_critical")
-    ? "text-amber-300 border-amber-400/40 bg-amber-500/10"
+    ? "text-amber-300 bg-amber-500/10"
     : usage?.warnings.includes("context_warning") || usage?.warnings.includes("rate_warning")
-      ? "text-amber-100 border-amber-200/30 bg-amber-500/5"
-      : "text-muted-foreground border-border/60 bg-background/70"
+      ? "text-amber-100 bg-amber-500/5"
+      : "text-muted-foreground bg-background/70"
 
   return (
     <CardHeader
@@ -68,7 +68,7 @@ export function ChatNavbar({
       )}
     >
       <div className="relative flex items-center gap-2 w-full">
-        <div className="flex items-center gap-1 flex-shrink-0 md:bg-background md:dark:bg-card md:border md:border-border md:rounded-xl md:p-1">
+        <div className="flex items-center gap-1 flex-shrink-0 md:bg-background/80 md:dark:bg-card/40 md:backdrop-blur-lg md:border md:border-border md:rounded-[20px] md:p-1">
           <Button
             variant="ghost"
             size="icon"
@@ -105,17 +105,17 @@ export function ChatNavbar({
 
         <div className="flex-1 min-w-0" />
 
-        <div className="flex items-center gap-1 flex-shrink-0 md:bg-background md:dark:bg-card md:border md:border-border md:rounded-xl md:p-1">
+        <div className="flex items-center gap-1 flex-shrink-0 md:bg-background/80 md:dark:bg-card/40 md:backdrop-blur-lg md:border md:border-border md:rounded-[20px] md:p-1">
           {projectId ? (
             <div className="hidden md:flex items-center gap-1 mr-1">
               <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className={cn("px-2.5 py-1 rounded-lg border text-[11px] font-medium", usageTone)}>
-                    Context: {usage?.contextUsedPercent !== null && usage?.contextUsedPercent !== undefined
-                      ? formatPercent(usage.contextUsedPercent)
-                      : "Unavailable"}
-                  </div>
-                </TooltipTrigger>
+                {(usage?.contextUsedPercent !== null && usage?.contextUsedPercent !== undefined) ? (
+                  <TooltipTrigger asChild>
+                    <div className={cn("px-2.5 py-1 rounded-lg text-[14px] font-medium", usageTone)}>
+                      Context: {formatPercent(usage.contextUsedPercent)}
+                    </div>
+                  </TooltipTrigger>
+                ) : null}
                 <TooltipContent side="bottom">
                   {usage?.contextWindowTokens !== null && usage?.contextWindowTokens !== undefined
                     && usage?.threadTokens !== null && usage?.threadTokens !== undefined

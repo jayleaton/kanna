@@ -39,7 +39,7 @@ function KannaLayout() {
   const isDesktopViewport = useMediaQuery("(min-width: 768px)")
   const desktopSidebarWidth = useLeftSidebarStore((store) => store.widthPx)
   const setDesktopSidebarWidth = useLeftSidebarStore((store) => store.setWidth)
-  const showMobileOpenButton = location.pathname === "/" || location.pathname.startsWith("/settings")
+  const showMobileOpenButton = location.pathname === "/"
   const currentVersion = SDK_CLIENT_APP.split("/")[1] ?? "unknown"
   const resolvedKeybindings = useMemo(() => getResolvedKeybindings(state.keybindings), [state.keybindings])
   useViewportCssVars()

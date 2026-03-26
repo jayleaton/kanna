@@ -660,7 +660,7 @@ const ChatInputInner = forwardRef<HTMLTextAreaElement, Props>(function ChatInput
         planMode={providerPrefs.planMode}
         onPlanModeChange={setEffectivePlanMode}
         includePlanMode={showPlanMode}
-        className="max-w-[840px] mx-auto mt-2"
+        className="w-max mx-auto mt-2 bg-background/80 dark:bg-card/40 backdrop-blur-lg border border-border rounded-[20px] p-1"
       />
     </div>
   )

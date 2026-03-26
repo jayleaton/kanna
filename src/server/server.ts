@@ -6,6 +6,7 @@ import { ATTACHMENTS_ROUTE_PREFIX, resolveAttachmentPath } from "./attachments"
 import { discoverProjects, type DiscoveredProject } from "./discovery"
 import { GitManager } from "./git-manager"
 import { KeybindingsManager } from "./keybindings"
+import { ThemeSettingsManager } from "./theme-settings"
 import { getMachineDisplayName } from "./machine-name"
 import { listProjectDirectories } from "./paths"
 import { TerminalManager } from "./terminal-manager"
@@ -13,6 +14,7 @@ import { UpdateManager } from "./update-manager"
 import type { UpdateInstallAttemptResult } from "./cli-runtime"
 import { importProjectHistory } from "./recovery"
 import { createWsRouter, type ClientState } from "./ws-router"
+import { getSystemBackgrounds, resolveBackgroundPath } from "./backgrounds"
 
 export interface StartKannaServerOptions {
   port?: number
@@ -56,6 +58,8 @@ export async function startKannaServer(options: StartKannaServerOptions = {}) {
   const git = new GitManager()
   const keybindings = new KeybindingsManager()
   await keybindings.initialize()
+  const themeSettings = new ThemeSettingsManager()
+  await themeSettings.initialize()
   const updateManager = options.update
     ? new UpdateManager({
       currentVersion: options.update.version,
@@ -77,6 +81,7 @@ export async function startKannaServer(options: StartKannaServerOptions = {}) {
     terminals,
     git,
     keybindings,
+    themeSettings,
     refreshDiscovery,
     getDiscoveredProjects: () => discoveredProjects,
     machineDisplayName,
@@ -111,6 +116,18 @@ export async function startKannaServer(options: StartKannaServerOptions = {}) {
 
           if (url.pathname === "/api/directories") {
             return serveDirectories(url)
+          }
+
+          if (url.pathname === "/api/backgrounds") {
+            return getSystemBackgrounds().then(Response.json)
+          }
+
+          if (url.pathname.startsWith("/api/backgrounds/")) {
+            const id = url.pathname.slice("/api/backgrounds/".length)
+            return resolveBackgroundPath(id).then(filePath => {
+              if (filePath) return new Response(Bun.file(filePath))
+              return new Response("Not found", { status: 404 })
+            })
           }
 
           if (url.pathname.startsWith(`${ATTACHMENTS_ROUTE_PREFIX}/`)) {
@@ -149,6 +166,7 @@ export async function startKannaServer(options: StartKannaServerOptions = {}) {
     }
     router.dispose()
     keybindings.dispose()
+    themeSettings.dispose()
     terminals.closeAll()
     await store.compact()
     server.stop(true)

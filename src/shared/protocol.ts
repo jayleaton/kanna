@@ -9,6 +9,7 @@ import type {
   LocalProjectsSnapshot,
   ModelOptions,
   SidebarData,
+  ThemeSettingsSnapshot,
   UpdateSnapshot,
 } from "./types"
 
@@ -24,6 +25,7 @@ export type SubscriptionTopic =
   | { type: "local-projects" }
   | { type: "update" }
   | { type: "keybindings" }
+  | { type: "theme-settings" }
   | { type: "chat"; chatId: string }
   | { type: "terminal"; terminalId: string }
 
@@ -59,6 +61,7 @@ export type ClientCommand =
   | { type: "update.install" }
   | { type: "settings.readKeybindings" }
   | { type: "settings.writeKeybindings"; bindings: KeybindingsSnapshot["bindings"] }
+  | { type: "settings.writeThemeSettings"; settings: ThemeSettingsSnapshot["settings"] }
   | {
       type: "system.openExternal"
       localPath: string
@@ -108,6 +111,7 @@ export type ServerSnapshot =
   | { type: "local-projects"; data: LocalProjectsSnapshot }
   | { type: "update"; data: UpdateSnapshot }
   | { type: "keybindings"; data: KeybindingsSnapshot }
+  | { type: "theme-settings"; data: ThemeSettingsSnapshot }
   | { type: "chat"; data: ChatSnapshot | null }
   | { type: "terminal"; data: TerminalSnapshot | null }
 

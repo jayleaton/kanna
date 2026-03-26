@@ -37,7 +37,7 @@ export function ActionMenu({ open, onOpenChange, position, children }: ActionMen
           sideOffset={4}
           onOpenAutoFocus={(e) => e.preventDefault()}
           className={cn(
-            "z-50 min-w-[170px] overflow-hidden rounded-xl border border-border bg-background p-1 shadow-lg",
+            "z-50 min-w-[170px] overflow-hidden rounded-xl border border-border bg-background p-1 shadow-lg backdrop-blur-md",
             "animate-in fade-in-0 zoom-in-95",
             "data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95",
           )}
