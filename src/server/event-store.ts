@@ -119,7 +119,11 @@ export class EventStore {
         return
       }
       for (const project of parsed.projects) {
-        this.state.projectsById.set(project.id, { ...project })
+        this.state.projectsById.set(project.id, {
+          ...project,
+          browserState: project.browserState ?? "OPEN",
+          generalChatsBrowserState: project.generalChatsBrowserState ?? "OPEN",
+        })
         this.state.projectIdsByRepoKey.set(project.repoKey, project.id)
         for (const worktreePath of project.worktreePaths) {
           this.state.projectIdsByPath.set(worktreePath, project.id)
@@ -217,6 +221,8 @@ export class EventStore {
           localPath,
           worktreePaths: event.worktreePaths.map((worktreePath) => resolveLocalPath(worktreePath)),
           title: event.title,
+          browserState: event.browserState ?? "OPEN",
+          generalChatsBrowserState: event.generalChatsBrowserState ?? "OPEN",
           createdAt: event.timestamp,
           updatedAt: event.timestamp,
         }
@@ -237,6 +243,20 @@ export class EventStore {
         project.localPath = localPath
         project.updatedAt = event.timestamp
         this.state.projectIdsByPath.set(localPath, project.id)
+        break
+      }
+      case "project_browser_state_set": {
+        const project = this.state.projectsById.get(event.projectId)
+        if (!project) break
+        project.browserState = event.browserState
+        project.updatedAt = event.timestamp
+        break
+      }
+      case "project_general_chats_browser_state_set": {
+        const project = this.state.projectsById.get(event.projectId)
+        if (!project) break
+        project.generalChatsBrowserState = event.browserState
+        project.updatedAt = event.timestamp
         break
       }
       case "project_removed": {
@@ -473,9 +493,43 @@ export class EventStore {
       localPath: identity.worktreePath,
       worktreePaths,
       title: title?.trim() || identity.title,
+      browserState: "OPEN",
+      generalChatsBrowserState: "OPEN",
     }
     await this.append(this.projectsLogPath, event)
     return this.state.projectsById.get(projectId)!
+  }
+
+  async setProjectBrowserState(projectId: string, browserState: FeatureBrowserState) {
+    const project = this.getProject(projectId)
+    if (!project) {
+      throw new Error("Project not found")
+    }
+    if (project.browserState === browserState) return
+    const event: ProjectEvent = {
+      v: STORE_VERSION,
+      type: "project_browser_state_set",
+      timestamp: Date.now(),
+      projectId,
+      browserState,
+    }
+    await this.append(this.projectsLogPath, event)
+  }
+
+  async setProjectGeneralChatsBrowserState(projectId: string, browserState: FeatureBrowserState) {
+    const project = this.getProject(projectId)
+    if (!project) {
+      throw new Error("Project not found")
+    }
+    if (project.generalChatsBrowserState === browserState) return
+    const event: ProjectEvent = {
+      v: STORE_VERSION,
+      type: "project_general_chats_browser_state_set",
+      timestamp: Date.now(),
+      projectId,
+      browserState,
+    }
+    await this.append(this.projectsLogPath, event)
   }
 
   async removeProject(projectId: string) {

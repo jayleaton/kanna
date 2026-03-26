@@ -316,6 +316,16 @@ export function createWsRouter({
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id })
           break
         }
+        case "project.setBrowserState": {
+          await store.setProjectBrowserState(command.projectId, command.browserState)
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id })
+          break
+        }
+        case "project.setGeneralChatsBrowserState": {
+          await store.setProjectGeneralChatsBrowserState(command.projectId, command.browserState)
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id })
+          break
+        }
         case "project.hide": {
           const existingProject = store.listProjects().find((project) => project.localPath === command.localPath)
           if (existingProject) {

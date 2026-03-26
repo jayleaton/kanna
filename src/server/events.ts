@@ -52,12 +52,26 @@ export type ProjectEvent = {
   localPath: string
   worktreePaths: string[]
   title: string
+  browserState?: FeatureBrowserState
+  generalChatsBrowserState?: FeatureBrowserState
 } | {
   v: 3
   type: "project_worktree_added"
   timestamp: number
   projectId: string
   localPath: string
+} | {
+  v: 3
+  type: "project_browser_state_set"
+  timestamp: number
+  projectId: string
+  browserState: FeatureBrowserState
+} | {
+  v: 3
+  type: "project_general_chats_browser_state_set"
+  timestamp: number
+  projectId: string
+  browserState: FeatureBrowserState
 } | {
   v: 3
   type: "project_removed"

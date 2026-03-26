@@ -32,6 +32,8 @@ interface KannaSidebarProps {
   onCreateFeature: (projectId: string) => void
   onRenameFeature: (featureId: string) => void
   onDeleteFeature: (featureId: string) => void
+  onSetProjectBrowserState: (projectId: string, browserState: FeatureBrowserState) => void
+  onSetProjectGeneralChatsBrowserState: (projectId: string, browserState: FeatureBrowserState) => void
   onSetFeatureBrowserState: (featureId: string, browserState: FeatureBrowserState) => void
   onSetFeatureStage: (featureId: string, stage: FeatureStage) => void
   onSetChatFeature: (chatId: string, featureId: string | null) => void
@@ -83,6 +85,8 @@ export function KannaSidebar({
   onCreateFeature,
   onRenameFeature,
   onDeleteFeature,
+  onSetProjectBrowserState,
+  onSetProjectGeneralChatsBrowserState,
   onSetFeatureBrowserState,
   onSetFeatureStage,
   onSetChatFeature,
@@ -102,6 +106,8 @@ export function KannaSidebar({
   const dragSidebarLeftRef = useRef(0)
   const pendingWidthRef = useRef<number | null>(null)
   const resizeFrameRef = useRef<number | null>(null)
+  const pendingProjectBrowserStatesRef = useRef<Record<string, FeatureBrowserState>>({})
+  const pendingProjectGeneralChatsBrowserStatesRef = useRef<Record<string, FeatureBrowserState>>({})
   const pendingFeatureBrowserStatesRef = useRef<Record<string, FeatureBrowserState>>({})
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set())
   const [isResizing, setIsResizing] = useState(false)
@@ -161,9 +167,23 @@ export function KannaSidebar({
   }, [])
 
   useEffect(() => {
+    const pendingProjectBrowserStates = pendingProjectBrowserStatesRef.current
+    const pendingProjectGeneralChatsBrowserStates = pendingProjectGeneralChatsBrowserStatesRef.current
     const pendingBrowserStates = pendingFeatureBrowserStatesRef.current
     setCollapsedSections((previous) => {
-      const next = new Set([...previous].filter((key) => !key.startsWith("feature:")))
+      const next = new Set([...previous].filter((key) =>
+        !key.startsWith("project:") && !key.startsWith("general:") && !key.startsWith("feature:")
+      ))
+      for (const group of sidebarProjectGroups) {
+        const projectBrowserState = pendingProjectBrowserStates[group.groupKey] ?? group.browserState
+        if (projectBrowserState === "CLOSED") {
+          next.add(`project:${group.groupKey}`)
+        }
+        const generalChatsBrowserState = pendingProjectGeneralChatsBrowserStates[group.groupKey] ?? group.generalChatsBrowserState
+        if (generalChatsBrowserState === "CLOSED") {
+          next.add(`general:${group.groupKey}`)
+        }
+      }
       for (const group of sidebarProjectGroups) {
         for (const feature of group.features) {
           const browserState = pendingBrowserStates[feature.featureId] ?? feature.browserState
@@ -174,6 +194,20 @@ export function KannaSidebar({
       }
       return next
     })
+    const nextPendingProjectBrowserStates = { ...pendingProjectBrowserStates }
+    for (const group of sidebarProjectGroups) {
+      if (nextPendingProjectBrowserStates[group.groupKey] === group.browserState) {
+        delete nextPendingProjectBrowserStates[group.groupKey]
+      }
+    }
+    pendingProjectBrowserStatesRef.current = nextPendingProjectBrowserStates
+    const nextPendingProjectGeneralChatsBrowserStates = { ...pendingProjectGeneralChatsBrowserStates }
+    for (const group of sidebarProjectGroups) {
+      if (nextPendingProjectGeneralChatsBrowserStates[group.groupKey] === group.generalChatsBrowserState) {
+        delete nextPendingProjectGeneralChatsBrowserStates[group.groupKey]
+      }
+    }
+    pendingProjectGeneralChatsBrowserStatesRef.current = nextPendingProjectGeneralChatsBrowserStates
     const nextPendingBrowserStates = { ...pendingBrowserStates }
     for (const group of sidebarProjectGroups) {
       for (const feature of group.features) {
@@ -184,6 +218,22 @@ export function KannaSidebar({
     }
     pendingFeatureBrowserStatesRef.current = nextPendingBrowserStates
   }, [sidebarProjectGroups])
+
+  const handleSetProjectBrowserState = useCallback((projectId: string, browserState: FeatureBrowserState) => {
+    pendingProjectBrowserStatesRef.current = {
+      ...pendingProjectBrowserStatesRef.current,
+      [projectId]: browserState,
+    }
+    onSetProjectBrowserState(projectId, browserState)
+  }, [onSetProjectBrowserState])
+
+  const handleSetProjectGeneralChatsBrowserState = useCallback((projectId: string, browserState: FeatureBrowserState) => {
+    pendingProjectGeneralChatsBrowserStatesRef.current = {
+      ...pendingProjectGeneralChatsBrowserStatesRef.current,
+      [projectId]: browserState,
+    }
+    onSetProjectGeneralChatsBrowserState(projectId, browserState)
+  }, [onSetProjectGeneralChatsBrowserState])
 
   const handleSetFeatureBrowserState = useCallback((featureId: string, browserState: FeatureBrowserState) => {
     pendingFeatureBrowserStatesRef.current = {
@@ -490,6 +540,8 @@ export function KannaSidebar({
               onReorderGroups={handleReorderGroups}
               collapsedSections={collapsedSections}
               onToggleSection={toggleSection}
+              onSetProjectBrowserState={handleSetProjectBrowserState}
+              onSetProjectGeneralChatsBrowserState={handleSetProjectGeneralChatsBrowserState}
               onSetFeatureBrowserState={handleSetFeatureBrowserState}
               renderChatRow={renderChatRow}
               onNewLocalChat={onCreateChat}

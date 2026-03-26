@@ -193,6 +193,8 @@ export interface KannaState {
   handleConfirmCreateFeature: (draft: FeatureCreateDraft) => Promise<void>
   handleRenameFeature: (featureId: string) => Promise<void>
   handleDeleteFeature: (featureId: string) => Promise<void>
+  handleSetProjectBrowserState: (projectId: string, browserState: FeatureBrowserState) => Promise<void>
+  handleSetProjectGeneralChatsBrowserState: (projectId: string, browserState: FeatureBrowserState) => Promise<void>
   handleSetFeatureBrowserState: (featureId: string, browserState: FeatureBrowserState) => Promise<void>
   handleSetFeatureStage: (featureId: string, stage: FeatureStage) => Promise<void>
   handleSetChatFeature: (chatId: string, featureId: string | null) => Promise<void>
@@ -638,6 +640,24 @@ export function useKannaState(activeChatId: string | null): KannaState {
     }
   }
 
+  async function handleSetProjectBrowserState(projectId: string, browserState: FeatureBrowserState) {
+    try {
+      await socket.command({ type: "project.setBrowserState", projectId, browserState })
+      setCommandError(null)
+    } catch (error) {
+      setCommandError(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  async function handleSetProjectGeneralChatsBrowserState(projectId: string, browserState: FeatureBrowserState) {
+    try {
+      await socket.command({ type: "project.setGeneralChatsBrowserState", projectId, browserState })
+      setCommandError(null)
+    } catch (error) {
+      setCommandError(error instanceof Error ? error.message : String(error))
+    }
+  }
+
   async function handleSetFeatureStage(featureId: string, stage: FeatureStage) {
     try {
       await socket.command({ type: "feature.setStage", featureId, stage })
@@ -1022,6 +1042,8 @@ export function useKannaState(activeChatId: string | null): KannaState {
     handleConfirmCreateFeature,
     handleRenameFeature,
     handleDeleteFeature,
+    handleSetProjectBrowserState,
+    handleSetProjectGeneralChatsBrowserState,
     handleSetFeatureBrowserState,
     handleSetFeatureStage,
     handleSetChatFeature,

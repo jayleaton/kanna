@@ -140,6 +140,8 @@ export interface ProjectSummary {
   localPath: string
   worktreePaths: string[]
   title: string
+  browserState: FeatureBrowserState
+  generalChatsBrowserState: FeatureBrowserState
   createdAt: number
   updatedAt: number
 }
@@ -188,6 +190,8 @@ export interface SidebarProjectGroup {
   groupKey: string
   title: string
   localPath: string
+  browserState: FeatureBrowserState
+  generalChatsBrowserState: FeatureBrowserState
   features: SidebarFeatureRow[]
   generalChats: SidebarChatRow[]
 }

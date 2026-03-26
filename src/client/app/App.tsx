@@ -99,6 +99,12 @@ function KannaLayout() {
         onDeleteFeature={(featureId) => {
           void state.handleDeleteFeature(featureId)
         }}
+        onSetProjectBrowserState={(projectId, browserState) => {
+          void state.handleSetProjectBrowserState(projectId, browserState)
+        }}
+        onSetProjectGeneralChatsBrowserState={(projectId, browserState) => {
+          void state.handleSetProjectGeneralChatsBrowserState(projectId, browserState)
+        }}
         onSetFeatureBrowserState={(featureId, browserState) => {
           void state.handleSetFeatureBrowserState(featureId, browserState)
         }}
