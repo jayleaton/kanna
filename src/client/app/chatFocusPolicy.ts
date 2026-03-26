@@ -107,6 +107,7 @@ export function resolveChatFocusAction(args:
   if (!root || !interactionTarget || !root.contains(interactionTarget)) return "none"
   if (hasAttributeInTree(interactionTarget, FOCUS_FALLBACK_IGNORE_ATTRIBUTE)) return "none"
   if (hasAttributeInTree(activeElement, FOCUS_FALLBACK_IGNORE_ATTRIBUTE)) return "none"
+  if (isTextEntryTarget(interactionTarget)) return "none"
   if (
     hasActiveSelection
     && (

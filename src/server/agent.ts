@@ -78,6 +78,8 @@ interface AgentCoordinatorArgs {
   generateTitle?: (messageContent: string, cwd: string) => Promise<string | null>
 }
 
+type RecoverablePendingTool = NormalizedToolCall & { toolKind: "ask_user_question" | "exit_plan_mode" }
+
 function timestamped<T extends Omit<TranscriptEntry, "_id" | "createdAt">>(
   entry: T,
   createdAt = Date.now()
@@ -113,22 +115,59 @@ function discardedToolResult(
   }
 }
 
-function findLatestRecoverableGeminiPlan(messages: TranscriptEntry[]) {
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null
+  return value as Record<string, unknown>
+}
+
+function findLatestRecoverablePendingTool(args: {
+  messages: TranscriptEntry[]
+  planMode: boolean
+}): RecoverablePendingTool | null {
   const completedToolIds = new Set(
-    messages
+    args.messages
       .filter((entry): entry is Extract<TranscriptEntry, { kind: "tool_result" }> => entry.kind === "tool_result")
       .map((entry) => entry.toolId)
   )
 
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const entry = messages[index]
+  for (let index = args.messages.length - 1; index >= 0; index -= 1) {
+    const entry = args.messages[index]
     if (entry.kind !== "tool_call") continue
-    if (entry.tool.toolKind !== "exit_plan_mode") continue
-    if (completedToolIds.has(entry.tool.toolId)) return null
-    return entry.tool
+    const tool = entry.tool
+    const isRecoverableAskUserQuestion = tool.toolKind === "ask_user_question"
+    const isRecoverableExitPlan = args.planMode && tool.toolKind === "exit_plan_mode"
+    if (!isRecoverableAskUserQuestion && !isRecoverableExitPlan) continue
+    if (completedToolIds.has(tool.toolId)) return null
+    return tool
   }
 
   return null
+}
+
+function formatRecoveredAskUserQuestionFollowUp(
+  tool: NormalizedToolCall & { toolKind: "ask_user_question" },
+  result: unknown
+) {
+  const record = asRecord(result)
+  const answersValue = asRecord(record?.answers) ?? record ?? {}
+  const lines = tool.input.questions.map((question) => {
+    const rawAnswer = (question.id ? answersValue[question.id] : undefined) ?? answersValue[question.question]
+    const answers = Array.isArray(rawAnswer)
+      ? rawAnswer.map((entry) => String(entry)).filter(Boolean)
+      : rawAnswer == null || rawAnswer === ""
+        ? []
+        : [String(rawAnswer)]
+    const label = question.question.trim() || question.id || "Question"
+    return `- ${label}: ${answers.length > 0 ? answers.join(", ") : "No response"}`
+  })
+
+  return [
+    "The app restarted while you were waiting for user input.",
+    "Resume from that point using the recovered answers below.",
+    "",
+    "Recovered user answers:",
+    ...lines,
+  ].join("\n")
 }
 
 function planModeFollowUp(result: { confirmed?: boolean; message?: string }) {
@@ -457,7 +496,7 @@ export class AgentCoordinator {
 
     for (const chat of this.store.state.chatsById.values()) {
       if (chat.deletedAt || statuses.has(chat.id)) continue
-      if (this.getRecoveredGeminiPendingTool(chat.id)) {
+      if (this.getRecoveredPendingTool(chat.id)) {
         statuses.set(chat.id, "waiting_for_user")
       }
     }
@@ -471,7 +510,7 @@ export class AgentCoordinator {
       return { toolUseId: pending.toolUseId, toolKind: pending.tool.toolKind }
     }
 
-    return this.getRecoveredGeminiPendingTool(chatId)
+    return this.getRecoveredPendingTool(chatId)
   }
 
   getLiveUsage(chatId: string) {
@@ -488,7 +527,7 @@ export class AgentCoordinator {
       }
     }
 
-    const recovered = this.getRecoveredGeminiPendingTool(chatId)
+    const recovered = this.getRecoveredPendingTool(chatId)
     return recovered
       ? {
           ...recovered,
@@ -497,13 +536,23 @@ export class AgentCoordinator {
       : null
   }
 
-  private getRecoveredGeminiPendingTool(chatId: string): PendingToolSnapshot | null {
+  private getRecoveredPendingToolRequest(chatId: string): RecoverablePendingTool | null {
     if (this.activeTurns.has(chatId)) return null
 
     const chat = this.store.getChat(chatId)
-    if (!chat || chat.provider !== "gemini" || !chat.planMode) return null
+    if (!chat || !chat.provider) return null
 
-    const pendingTool = findLatestRecoverableGeminiPlan(this.store.getMessages(chatId))
+    const pendingTool = findLatestRecoverablePendingTool({
+      messages: this.store.getMessages(chatId),
+      planMode: chat.planMode,
+    })
+    if (!pendingTool) return null
+
+    return pendingTool
+  }
+
+  private getRecoveredPendingTool(chatId: string): PendingToolSnapshot | null {
+    const pendingTool = this.getRecoveredPendingToolRequest(chatId)
     if (!pendingTool) return null
 
     return {
@@ -884,11 +933,11 @@ export class AgentCoordinator {
     if (!active) return
 
     const pendingTool = active.pendingTool
-    const shouldPreserveGeminiPlan =
-      active.provider === "gemini" &&
-      pendingTool?.tool.toolKind === "exit_plan_mode"
+    const shouldPreservePendingTool =
+      pendingTool?.tool.toolKind === "ask_user_question"
+      || pendingTool?.tool.toolKind === "exit_plan_mode"
 
-    if (!shouldPreserveGeminiPlan) {
+    if (!shouldPreservePendingTool) {
       await this.cancel(chatId)
       return
     }
@@ -906,13 +955,13 @@ export class AgentCoordinator {
   async respondTool(command: Extract<ClientCommand, { type: "chat.respondTool" }>) {
     const active = this.activeTurns.get(command.chatId)
     if (!active || !active.pendingTool) {
-      const recoveredPending = this.getRecoveredGeminiPendingTool(command.chatId)
+      const recoveredPending = this.getRecoveredPendingToolRequest(command.chatId)
       const chat = this.store.getChat(command.chatId)
-      if (!recoveredPending || !chat || chat.provider !== "gemini") {
+      if (!recoveredPending || !chat || !chat.provider) {
         throw new Error("No pending tool request")
       }
 
-      if (recoveredPending.toolUseId !== command.toolUseId) {
+      if (recoveredPending.toolId !== command.toolUseId) {
         throw new Error("Tool response does not match active request")
       }
 
@@ -924,6 +973,29 @@ export class AgentCoordinator {
           content: command.result,
         })
       )
+
+      const settings = this.getProviderSettings(chat.provider, {
+        type: "chat.send",
+        chatId: command.chatId,
+        message: { text: "" },
+        planMode: chat.planMode,
+      })
+
+      if (recoveredPending.toolKind === "ask_user_question") {
+        await this.startTurnForChat({
+          chatId: command.chatId,
+          provider: chat.provider,
+          content: formatRecoveredAskUserQuestionFollowUp(recoveredPending, command.result),
+          model: settings.model,
+          effort: settings.effort,
+          serviceTier: settings.serviceTier,
+          planMode: chat.planMode,
+          appendUserPrompt: null,
+        })
+
+        this.onStateChange()
+        return
+      }
 
       const result = (command.result ?? {}) as {
         confirmed?: boolean
@@ -938,15 +1010,9 @@ export class AgentCoordinator {
 
       const followUp = planModeFollowUp(result)
 
-      const settings = this.getProviderSettings("gemini", {
-        type: "chat.send",
-        chatId: command.chatId,
-        message: { text: "" },
-      })
-
       await this.startTurnForChat({
         chatId: command.chatId,
-        provider: "gemini",
+        provider: chat.provider,
         content: followUp.content,
         model: settings.model,
         effort: settings.effort,

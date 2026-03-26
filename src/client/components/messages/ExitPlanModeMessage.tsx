@@ -114,7 +114,7 @@ export function ExitPlanModeMessage({ message, onConfirm, isLatest, isActionable
               <Button
                 size="sm"
                 onClick={() => onConfirm(message.toolId, true, true)}
-                className="rounded-full bg-primary text-background pr-4 md:order-last"
+                className="rounded-full bg-primary text-primary-foreground pr-4 md:order-last"
               >
                 <CheckCheck className="h-4 w-4 mr-1.5" />
                 Approve & Clear
@@ -178,7 +178,7 @@ export function ExitPlanModeMessage({ message, onConfirm, isLatest, isActionable
                   size="sm"
                   disabled={!editMessage.trim()}
                   onClick={() => onConfirm(message.toolId, false, undefined, editMessage.trim())}
-                  className="rounded-full bg-primary text-background disabled:opacity-50 disabled:pointer-events-none"
+                  className="rounded-full bg-primary text-primary-foreground disabled:opacity-50 disabled:pointer-events-none"
                 >
                   <Send className="h-4 w-4 mr-1.5" />
                   Adjust Plan

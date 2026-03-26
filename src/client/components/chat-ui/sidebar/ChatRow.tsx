@@ -1,5 +1,6 @@
 import { Archive, Loader2 } from "lucide-react"
 import type { SidebarChatRow } from "../../../../shared/types"
+import { PROVIDER_ICONS } from "../ChatPreferenceControls"
 import { AnimatedShinyText } from "../../ui/animated-shiny-text"
 import { Button } from "../../ui/button"
 import { formatSidebarAgeLabel } from "../../../lib/formatters"
@@ -40,6 +41,7 @@ export function ChatRow({
 }: Props) {
   const ageLabel = formatSidebarAgeLabel(chat.lastMessageAt, nowMs)
   const touchEnabled = isTouchDevice && draggable
+  const ProviderIcon = chat.provider ? PROVIDER_ICONS[chat.provider] : null
 
   const { touchRef, isArmed, isDragging, dragPosition } = useTouchInteraction({
     enabled: touchEnabled,
@@ -83,6 +85,12 @@ export function ChatRow({
               <div className="rounded-full z-0 size-2.5 bg-blue-400 ring-2 ring-muted/20 dark:ring-muted/50" />
             </div>
           </div>
+        ) : null}
+        {ProviderIcon ? (
+          <ProviderIcon
+            className="size-3.5 flex-shrink-0 text-muted-foreground/80"
+            aria-label={`${chat.provider} provider`}
+          />
         ) : null}
         <span className="text-sm truncate flex-1 translate-y-[-0.5px]">
           {chat.status !== "idle" && chat.status !== "waiting_for_user" ? (

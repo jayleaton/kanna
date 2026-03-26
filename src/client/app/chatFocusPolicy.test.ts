@@ -183,6 +183,21 @@ describe("chatFocusPolicy", () => {
     })).toBe("none")
   })
 
+  test("does not restore when clicking another input before focus settles", () => {
+    const { root, chat, otherInput } = createTree()
+
+    expect(resolveChatFocusAction({
+      trigger: "pointer",
+      activeElement: null,
+      pointerStartTarget: otherInput,
+      pointerEndTarget: otherInput,
+      root,
+      fallback: chat,
+      hasActiveOverlay: false,
+      hasActiveSelection: false,
+    })).toBe("none")
+  })
+
   test("does not restore when transcript text is being selected", () => {
     const { root, chat, transcriptText } = createTree()
 

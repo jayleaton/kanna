@@ -75,6 +75,14 @@ const fakeThemeSettings = {
   onChange: () => () => {},
 } as never
 
+function createFakeAgent() {
+  return {
+    getActiveStatuses: () => new Map(),
+    getLiveUsage: () => null,
+    getChatPendingTool: () => null,
+  }
+}
+
 describe("ws-router", () => {
   test("acks system.ping without broadcasting snapshots", () => {
     const router = createWsRouter({
@@ -83,7 +91,7 @@ describe("ws-router", () => {
         getChat: () => null,
         getMessages: () => [],
       } as never,
-      agent: { getActiveStatuses: () => new Map(), getLiveUsage: () => null } as never,
+      agent: createFakeAgent() as never,
       terminals: {
         getSnapshot: () => null,
         onEvent: () => () => {},
@@ -128,7 +136,7 @@ describe("ws-router", () => {
         getChat: () => null,
         getMessages: () => [],
       } as never,
-      agent: { getActiveStatuses: () => new Map(), getLiveUsage: () => null } as never,
+      agent: createFakeAgent() as never,
       terminals: {
         getSnapshot: () => null,
         onEvent: () => () => {},
@@ -178,7 +186,7 @@ describe("ws-router", () => {
         getChat: () => null,
         getMessages: () => [],
       } as never,
-      agent: { getActiveStatuses: () => new Map(), getLiveUsage: () => null } as never,
+      agent: createFakeAgent() as never,
       terminals: {
         getSnapshot: () => null,
         onEvent: () => () => {},
@@ -245,7 +253,7 @@ describe("ws-router", () => {
           hiddenPaths.push(localPath)
         },
       } as never,
-      agent: { cancel: async () => {}, getActiveStatuses: () => new Map(), getLiveUsage: () => null } as never,
+      agent: { ...createFakeAgent(), cancel: async () => {} } as never,
       terminals: {
         getSnapshot: () => null,
         onEvent: () => () => {},
@@ -302,7 +310,7 @@ describe("ws-router", () => {
           return { id: "feature-1" }
         },
       } as never,
-      agent: { getActiveStatuses: () => new Map(), getLiveUsage: () => null } as never,
+      agent: createFakeAgent() as never,
       terminals: {
         getSnapshot: () => null,
         onEvent: () => () => {},
@@ -362,7 +370,7 @@ describe("ws-router", () => {
           calls.push({ featureId, browserState })
         },
       } as never,
-      agent: { getActiveStatuses: () => new Map(), getLiveUsage: () => null } as never,
+      agent: createFakeAgent() as never,
       terminals: {
         getSnapshot: () => null,
         onEvent: () => () => {},
@@ -409,7 +417,7 @@ describe("ws-router", () => {
           calls.push({ projectId, browserState })
         },
       } as never,
-      agent: { getActiveStatuses: () => new Map(), getLiveUsage: () => null } as never,
+      agent: createFakeAgent() as never,
       terminals: {
         getSnapshot: () => null,
         onEvent: () => () => {},
@@ -456,7 +464,7 @@ describe("ws-router", () => {
           calls.push({ projectId, browserState })
         },
       } as never,
-      agent: { getActiveStatuses: () => new Map(), getLiveUsage: () => null } as never,
+      agent: createFakeAgent() as never,
       terminals: {
         getSnapshot: () => null,
         onEvent: () => () => {},
@@ -500,7 +508,7 @@ describe("ws-router", () => {
         getChat: () => null,
         getMessages: () => [],
       } as never,
-      agent: { getActiveStatuses: () => new Map(), getLiveUsage: () => null } as never,
+      agent: createFakeAgent() as never,
       terminals: {
         getSnapshot: () => null,
         onEvent: () => () => {},
@@ -567,7 +575,7 @@ describe("ws-router", () => {
         getChat: () => null,
         getMessages: () => [],
       } as never,
-      agent: { getActiveStatuses: () => new Map(), getLiveUsage: () => null } as never,
+      agent: createFakeAgent() as never,
       terminals: {
         getSnapshot: () => null,
         onEvent: () => () => {},
@@ -672,7 +680,7 @@ describe("ws-router", () => {
 
     const router = createWsRouter({
       store: { state: createEmptyState() } as never,
-      agent: { getActiveStatuses: () => new Map(), getLiveUsage: () => null } as never,
+      agent: createFakeAgent() as never,
       terminals: {
         getSnapshot: () => null,
         onEvent: () => () => {},
@@ -838,7 +846,7 @@ describe("ws-router", () => {
 
     const router = createWsRouter({
       store: store as never,
-      agent: { getActiveStatuses: () => new Map(), getLiveUsage: () => null } as never,
+      agent: createFakeAgent() as never,
       terminals: {
         getSnapshot: () => null,
         onEvent: () => () => {},
@@ -898,7 +906,7 @@ describe("ws-router", () => {
         state: createEmptyState(),
         getChat: () => null,
       } as never,
-      agent: { getActiveStatuses: () => new Map(), getLiveUsage: () => null } as never,
+      agent: createFakeAgent() as never,
       terminals: {
         getSnapshot: () => null,
         onEvent: () => () => {},
@@ -953,7 +961,7 @@ describe("ws-router", () => {
         state: createEmptyState(),
         getChat: () => null,
       } as never,
-      agent: { getActiveStatuses: () => new Map(), getLiveUsage: () => null } as never,
+      agent: createFakeAgent() as never,
       terminals: {
         getSnapshot: () => null,
         onEvent: () => () => {},
@@ -1045,7 +1053,7 @@ describe("ws-router", () => {
 
       const router = createWsRouter({
         store: store as never,
-        agent: { getActiveStatuses: () => new Map(), getLiveUsage: () => null } as never,
+        agent: createFakeAgent() as never,
         terminals: {
           getSnapshot: () => null,
           onEvent: () => () => {},
