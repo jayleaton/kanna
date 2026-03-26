@@ -415,10 +415,12 @@ export function SettingsPage() {
   const keybindings = state.keybindings
   const defaultProvider = useChatPreferencesStore((store) => store.defaultProvider)
   const providerDefaults = useChatPreferencesStore((store) => store.providerDefaults)
+  const showProviderIconsInSideTray = useChatPreferencesStore((store) => store.showProviderIconsInSideTray)
   const setDefaultProvider = useChatPreferencesStore((store) => store.setDefaultProvider)
   const setProviderDefaultModel = useChatPreferencesStore((store) => store.setProviderDefaultModel)
   const setProviderDefaultModelOptions = useChatPreferencesStore((store) => store.setProviderDefaultModelOptions)
   const setProviderDefaultPlanMode = useChatPreferencesStore((store) => store.setProviderDefaultPlanMode)
+  const setShowProviderIconsInSideTray = useChatPreferencesStore((store) => store.setShowProviderIconsInSideTray)
   const folderGroupsEnabled = useFeatureSettingsStore((store) => store.folderGroupsEnabled)
   const kanbanStatusesEnabled = useFeatureSettingsStore((store) => store.kanbanStatusesEnabled)
   const commitKannaDirectory = useFeatureSettingsStore((store) => store.commitKannaDirectory)
@@ -1123,6 +1125,24 @@ export function SettingsPage() {
                           </SettingsRow>
                         </div>
                       ) : null}
+
+                      <SettingsRow
+                        title="Provider Icons In Side Tray"
+                        description="Show provider badges next to chats in the left sidebar side tray."
+                      >
+                        <Select
+                          value={showProviderIconsInSideTray ? "enabled" : "disabled"}
+                          onValueChange={(value) => setShowProviderIconsInSideTray(value === "enabled")}
+                        >
+                          <SelectTrigger className="w-[100px]">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="disabled">Off</SelectItem>
+                            <SelectItem value="enabled">On</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </SettingsRow>
 
                       <SettingsRow
                         title="Default Editor"

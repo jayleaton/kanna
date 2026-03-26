@@ -206,20 +206,39 @@ export function ChatPage() {
     if (!viewport) return
 
     const keepFocusedComposerVisible = () => {
-      if (document.activeElement !== chatInputRef.current) return
-
       const element = state.scrollRef.current
       if (!element) return
 
       const distance = element.scrollHeight - element.scrollTop - element.clientHeight
-      if (!shouldPinTranscriptToBottom(distance)) return
-
-      requestAnimationFrame(() => {
+      
+      if (shouldPinTranscriptToBottom(distance)) {
         requestAnimationFrame(() => {
-          state.scrollToBottom()
-          state.updateScrollState()
+          requestAnimationFrame(() => {
+            state.scrollToBottom()
+            state.updateScrollState()
+          })
         })
-      })
+        return
+      }
+
+      const activeElement = document.activeElement
+      if (activeElement && element.contains(activeElement)) {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            // Check if the element is covered by the bottom chat input area
+            const inputRect = state.inputRef.current?.getBoundingClientRect()
+            const activeRect = activeElement.getBoundingClientRect()
+            
+            if (inputRect && activeRect.bottom > inputRect.top) {
+              // Calculate how much we need to scroll up to make it visible
+              const overflow = activeRect.bottom - inputRect.top
+              // Add a small buffer (16px) so it's not flush against the input
+              element.scrollBy({ top: overflow + 16, behavior: "auto" })
+            }
+            state.updateScrollState()
+          })
+        })
+      }
     }
 
     viewport.addEventListener("resize", keepFocusedComposerVisible)

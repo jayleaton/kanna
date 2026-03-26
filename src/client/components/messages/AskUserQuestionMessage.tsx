@@ -342,7 +342,7 @@ export function AskUserQuestionMessage({ message, onSubmit, isLatest }: Props) {
               onChange={(e) => handleCustomInputChange(currentQuestion, e.target.value)}
               onKeyDown={handleCustomInputEnter}
               placeholder="Other..."
-              className="flex-1 px-3 !py-1 pl-4 min-h-[55px] min-w-0 text-sm bg-transparent outline-none text-foreground placeholder:text-muted-foreground"
+              className="flex-1 px-3 !py-1 pl-4 min-h-[55px] min-w-0 text-base md:text-sm bg-transparent outline-none text-foreground placeholder:text-muted-foreground"
             />
             <Checkbox
               selected={!!customInput}

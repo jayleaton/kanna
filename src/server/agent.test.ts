@@ -749,6 +749,187 @@ describe("AgentCoordinator codex integration", () => {
     expect(store.messages.some((entry) => entry.kind === "interrupted")).toBe(false)
   })
 
+  test("shutdown preserves a waiting ask-user-question prompt for restart recovery", async () => {
+    let releaseInterrupt!: () => void
+    const interrupted = new Promise<void>((resolve) => {
+      releaseInterrupt = resolve
+    })
+
+    const fakeCodexManager = {
+      async startSession() {},
+      async startTurn(args: {
+        onToolRequest: (request: any) => Promise<unknown>
+      }): Promise<HarnessTurn> {
+        async function* stream() {
+          yield {
+            type: "transcript" as const,
+            entry: timestamped({
+              kind: "system_init",
+              provider: "codex",
+              model: "gpt-5.4",
+              tools: [],
+              agents: [],
+              slashCommands: [],
+              mcpServers: [],
+            }),
+          }
+          yield {
+            type: "transcript" as const,
+            entry: timestamped({
+              kind: "tool_call",
+              tool: {
+                kind: "tool",
+                toolKind: "ask_user_question",
+                toolName: "AskUserQuestion",
+                toolId: "question-1",
+                input: {
+                  questions: [{ id: "provider", question: "Provider?" }],
+                },
+              },
+            }),
+          }
+          await args.onToolRequest({
+            tool: {
+              kind: "tool",
+              toolKind: "ask_user_question",
+              toolName: "AskUserQuestion",
+              toolId: "question-1",
+              input: {
+                questions: [{ id: "provider", question: "Provider?" }],
+              },
+            },
+          })
+          await interrupted
+        }
+
+        return {
+          provider: "codex",
+          stream: stream(),
+          interrupt: async () => {
+            releaseInterrupt()
+          },
+          close: () => {},
+        }
+      },
+    }
+
+    const store = createFakeStore()
+    const coordinator = new AgentCoordinator({
+      store: store as never,
+      onStateChange: () => {},
+      attachmentsDir: "/tmp/kanna-attachments",
+      codexManager: fakeCodexManager as never,
+    })
+
+    await coordinator.send({
+      type: "chat.send",
+      chatId: "chat-1",
+      provider: "codex",
+      message: { text: "ask me later" },
+    })
+
+    await waitFor(() => coordinator.getPendingTool("chat-1")?.toolKind === "ask_user_question")
+    await coordinator.shutdown("chat-1")
+
+    expect(coordinator.getPendingTool("chat-1")).toEqual({
+      toolUseId: "question-1",
+      toolKind: "ask_user_question",
+    })
+    expect(store.messages.some((entry) => entry.kind === "tool_result" && entry.toolId === "question-1")).toBe(false)
+    expect(store.messages.some((entry) => entry.kind === "interrupted")).toBe(false)
+  })
+
+  test("shutdown preserves a waiting codex exit-plan prompt for restart recovery", async () => {
+    let releaseInterrupt!: () => void
+    const interrupted = new Promise<void>((resolve) => {
+      releaseInterrupt = resolve
+    })
+
+    const fakeCodexManager = {
+      async startSession() {},
+      async startTurn(args: {
+        onToolRequest: (request: any) => Promise<unknown>
+      }): Promise<HarnessTurn> {
+        async function* stream() {
+          yield {
+            type: "transcript" as const,
+            entry: timestamped({
+              kind: "system_init",
+              provider: "codex",
+              model: "gpt-5.4",
+              tools: [],
+              agents: [],
+              slashCommands: [],
+              mcpServers: [],
+            }),
+          }
+          yield {
+            type: "transcript" as const,
+            entry: timestamped({
+              kind: "tool_call",
+              tool: {
+                kind: "tool",
+                toolKind: "exit_plan_mode",
+                toolName: "ExitPlanMode",
+                toolId: "exit-1",
+                input: {
+                  plan: "## Plan",
+                },
+              },
+            }),
+          }
+          await args.onToolRequest({
+            tool: {
+              kind: "tool",
+              toolKind: "exit_plan_mode",
+              toolName: "ExitPlanMode",
+              toolId: "exit-1",
+              input: {
+                plan: "## Plan",
+              },
+            },
+          })
+          await interrupted
+        }
+
+        return {
+          provider: "codex",
+          stream: stream(),
+          interrupt: async () => {
+            releaseInterrupt()
+          },
+          close: () => {},
+        }
+      },
+    }
+
+    const store = createFakeStore()
+    const coordinator = new AgentCoordinator({
+      store: store as never,
+      onStateChange: () => {},
+      attachmentsDir: "/tmp/kanna-attachments",
+      codexManager: fakeCodexManager as never,
+    })
+
+    await coordinator.send({
+      type: "chat.send",
+      chatId: "chat-1",
+      provider: "codex",
+      message: { text: "plan this" },
+      planMode: true,
+    })
+
+    await waitFor(() => coordinator.getPendingTool("chat-1")?.toolKind === "exit_plan_mode")
+    await coordinator.shutdown("chat-1")
+
+    expect(coordinator.getPendingTool("chat-1")).toEqual({
+      toolUseId: "exit-1",
+      toolKind: "exit_plan_mode",
+    })
+    expect(store.messages.some((entry) => entry.kind === "tool_result" && entry.toolId === "exit-1")).toBe(false)
+    expect(store.messages.some((entry) => entry.kind === "interrupted")).toBe(false)
+  })
+
   test("approving a recovered Gemini exit-plan prompt starts a follow-up turn", async () => {
     const startTurnCalls: Array<{ content: string; planMode: boolean }> = []
 
@@ -847,6 +1028,214 @@ describe("AgentCoordinator codex integration", () => {
     ])
     expect(store.messages.some((entry) => entry.kind === "tool_result" && entry.toolId === "exit-1")).toBe(true)
     expect(store.chat.sessionToken).toBe("gemini-thread-2")
+  })
+
+  test("answering a recovered ask-user-question prompt starts a follow-up turn", async () => {
+    const sessionCalls: Array<{ chatId: string; sessionToken: string | null }> = []
+    const startTurnCalls: Array<{ content: string; planMode: boolean }> = []
+
+    const fakeCodexManager = {
+      async startSession(args: { chatId: string; sessionToken: string | null }) {
+        sessionCalls.push({ chatId: args.chatId, sessionToken: args.sessionToken })
+      },
+      async startTurn(args: {
+        content: string
+        planMode: boolean
+      }): Promise<HarnessTurn> {
+        startTurnCalls.push({ content: args.content, planMode: args.planMode })
+
+        async function* stream() {
+          yield {
+            type: "transcript" as const,
+            entry: timestamped({
+              kind: "system_init",
+              provider: "codex",
+              model: "gpt-5.4",
+              tools: [],
+              agents: [],
+              slashCommands: [],
+              mcpServers: [],
+            }),
+          }
+          yield {
+            type: "transcript" as const,
+            entry: timestamped({
+              kind: "result",
+              subtype: "success",
+              isError: false,
+              durationMs: 0,
+              result: "",
+            }),
+          }
+        }
+
+        return {
+          provider: "codex",
+          stream: stream(),
+          interrupt: async () => {},
+          close: () => {},
+        }
+      },
+    }
+
+    const store = createFakeStore()
+    store.chat.provider = "codex"
+    store.chat.sessionToken = "thread-1"
+    store.messages.push(timestamped({
+      kind: "tool_call",
+      tool: {
+        kind: "tool",
+        toolKind: "ask_user_question",
+        toolName: "AskUserQuestion",
+        toolId: "question-1",
+        input: {
+          questions: [{ id: "provider", question: "Provider?" }],
+        },
+      },
+    }))
+
+    const coordinator = new AgentCoordinator({
+      store: store as never,
+      onStateChange: () => {},
+      attachmentsDir: "/tmp/kanna-attachments",
+      codexManager: fakeCodexManager as never,
+    })
+
+    expect(coordinator.getChatPendingTool("chat-1")).toEqual({
+      toolUseId: "question-1",
+      toolKind: "ask_user_question",
+      source: "recovered",
+    })
+
+    await coordinator.respondTool({
+      type: "chat.respondTool",
+      chatId: "chat-1",
+      toolUseId: "question-1",
+      result: {
+        answers: {
+          provider: ["Codex"],
+        },
+      },
+    })
+
+    await waitFor(() => store.turnFinishedCount === 1)
+
+    expect(sessionCalls).toEqual([{ chatId: "chat-1", sessionToken: "thread-1" }])
+    expect(startTurnCalls).toHaveLength(1)
+    expect(startTurnCalls[0]?.planMode).toBe(false)
+    expect(startTurnCalls[0]?.content).toContain("The app restarted while you were waiting for user input.")
+    expect(startTurnCalls[0]?.content).toContain("- Provider?: Codex")
+
+    const toolResult = store.messages.find((entry) => entry.kind === "tool_result" && entry.toolId === "question-1")
+    expect(toolResult).toBeDefined()
+    if (!toolResult || toolResult.kind !== "tool_result") {
+      throw new Error("missing recovered ask-user-question result")
+    }
+    expect(toolResult.content).toEqual({
+      answers: {
+        provider: ["Codex"],
+      },
+    })
+  })
+
+  test("approving a recovered codex exit-plan prompt starts a follow-up turn", async () => {
+    const sessionCalls: Array<{ chatId: string; sessionToken: string | null }> = []
+    const startTurnCalls: Array<{ content: string; planMode: boolean }> = []
+
+    const fakeCodexManager = {
+      async startSession(args: { chatId: string; sessionToken: string | null }) {
+        sessionCalls.push({ chatId: args.chatId, sessionToken: args.sessionToken })
+      },
+      async startTurn(args: {
+        content: string
+        planMode: boolean
+      }): Promise<HarnessTurn> {
+        startTurnCalls.push({ content: args.content, planMode: args.planMode })
+
+        async function* stream() {
+          yield {
+            type: "transcript" as const,
+            entry: timestamped({
+              kind: "system_init",
+              provider: "codex",
+              model: "gpt-5.4",
+              tools: [],
+              agents: [],
+              slashCommands: [],
+              mcpServers: [],
+            }),
+          }
+          yield {
+            type: "transcript" as const,
+            entry: timestamped({
+              kind: "result",
+              subtype: "success",
+              isError: false,
+              durationMs: 0,
+              result: "",
+            }),
+          }
+        }
+
+        return {
+          provider: "codex",
+          stream: stream(),
+          interrupt: async () => {},
+          close: () => {},
+        }
+      },
+    }
+
+    const store = createFakeStore()
+    store.chat.provider = "codex"
+    store.chat.planMode = true
+    store.chat.sessionToken = "thread-1"
+    store.messages.push(timestamped({
+      kind: "tool_call",
+      tool: {
+        kind: "tool",
+        toolKind: "exit_plan_mode",
+        toolName: "ExitPlanMode",
+        toolId: "exit-1",
+        input: {
+          plan: "## Saved plan",
+        },
+      },
+    }))
+
+    const coordinator = new AgentCoordinator({
+      store: store as never,
+      onStateChange: () => {},
+      attachmentsDir: "/tmp/kanna-attachments",
+      codexManager: fakeCodexManager as never,
+    })
+
+    expect(coordinator.getChatPendingTool("chat-1")).toEqual({
+      toolUseId: "exit-1",
+      toolKind: "exit_plan_mode",
+      source: "recovered",
+    })
+
+    await coordinator.respondTool({
+      type: "chat.respondTool",
+      chatId: "chat-1",
+      toolUseId: "exit-1",
+      result: {
+        confirmed: true,
+        message: "Use the fast path",
+      },
+    })
+
+    await waitFor(() => store.turnFinishedCount === 1)
+
+    expect(sessionCalls).toEqual([{ chatId: "chat-1", sessionToken: "thread-1" }])
+    expect(startTurnCalls).toEqual([
+      {
+        content: "Proceed with the approved plan. Additional guidance: Use the fast path",
+        planMode: false,
+      },
+    ])
+    expect(store.messages.some((entry) => entry.kind === "tool_result" && entry.toolId === "exit-1")).toBe(true)
   })
 })
 

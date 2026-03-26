@@ -48,7 +48,7 @@ describe("shouldSubmitChatInput", () => {
     keybindings.bindings.submitChatMessage = ["shift+enter"]
     const event = { key: "Enter", metaKey: false, ctrlKey: false, altKey: false, shiftKey: true, isComposing: false } as KeyboardEvent
 
-    expect(shouldSubmitChatInput(event, keybindings, false)).toBe(true)
+    expect(shouldSubmitChatInput(event, keybindings, false, false)).toBe(true)
   })
 
   test("does not submit on plain enter when the binding is changed to shift+enter", () => {
@@ -56,20 +56,27 @@ describe("shouldSubmitChatInput", () => {
     keybindings.bindings.submitChatMessage = ["shift+enter"]
     const event = { key: "Enter", metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, isComposing: false } as KeyboardEvent
 
-    expect(shouldSubmitChatInput(event, keybindings, false)).toBe(false)
+    expect(shouldSubmitChatInput(event, keybindings, false, false)).toBe(false)
   })
 
   test("does not submit while cancel is active", () => {
     const keybindings = getResolvedKeybindings(null)
     const event = { key: "Enter", metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, isComposing: false } as KeyboardEvent
 
-    expect(shouldSubmitChatInput(event, keybindings, true)).toBe(false)
+    expect(shouldSubmitChatInput(event, keybindings, true, false)).toBe(false)
   })
 
   test("does not submit while IME composition is active", () => {
     const keybindings = getResolvedKeybindings(null)
     const event = { key: "Enter", metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, isComposing: true } as KeyboardEvent
 
-    expect(shouldSubmitChatInput(event, keybindings, false)).toBe(false)
+    expect(shouldSubmitChatInput(event, keybindings, false, false)).toBe(false)
+  })
+
+  test("does not submit on mobile when enter is pressed", () => {
+    const keybindings = getResolvedKeybindings(null)
+    const event = { key: "Enter", metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, isComposing: false } as KeyboardEvent
+
+    expect(shouldSubmitChatInput(event, keybindings, false, true)).toBe(false)
   })
 })

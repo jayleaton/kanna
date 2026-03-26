@@ -19,6 +19,7 @@ import { Button } from "../ui/button"
 import { Textarea } from "../ui/textarea"
 import { cn, generateUUID } from "../../lib/utils"
 import { useIsStandalone } from "../../hooks/useIsStandalone"
+import { useMediaQuery } from "../../hooks/useMediaQuery"
 import { useChatInputStore } from "../../stores/chatInputStore"
 import { type ComposerState, useChatPreferencesStore } from "../../stores/chatPreferencesStore"
 import { CHAT_INPUT_ATTRIBUTE, focusNextChatInput } from "../../app/chatFocusPolicy"
@@ -140,8 +141,10 @@ function createLockedComposerState(
 export function shouldSubmitChatInput(
   event: KeyboardEvent,
   keybindings: KeybindingsSnapshot | null,
-  canCancel: boolean | undefined
+  canCancel: boolean | undefined,
+  isCoarsePointer: boolean
 ) {
+  if (isCoarsePointer && event.key === "Enter") return false
   return actionMatchesEvent(keybindings, "submitChatMessage", event) && !canCancel && !event.isComposing
 }
 
@@ -214,6 +217,7 @@ const ChatInputInner = forwardRef<HTMLTextAreaElement, Props>(function ChatInput
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const isStandalone = useIsStandalone()
+  const isCoarsePointer = useMediaQuery("(pointer: coarse)")
   const [lockedComposerState, setLockedComposerState] = useState<ComposerState | null>(() => (
     activeProvider ? createLockedComposerState(activeProvider, composerState, providerDefaults) : null
   ))
@@ -477,7 +481,7 @@ const ChatInputInner = forwardRef<HTMLTextAreaElement, Props>(function ChatInput
       onCancel?.()
       return
     }
-    if (shouldSubmitChatInput(event.nativeEvent, keybindings, canCancel)) {
+    if (shouldSubmitChatInput(event.nativeEvent, keybindings, canCancel, isCoarsePointer)) {
       event.preventDefault()
       void handleSubmit()
     }
