@@ -5,12 +5,9 @@ import {
   Code,
   Info,
   Loader2,
-  Monitor,
-  Moon,
   MessageSquareQuote,
   RefreshCw,
   Settings2,
-  Sun,
   CloudDownload,
   X,
 } from "lucide-react"
@@ -25,12 +22,12 @@ import { buttonVariants } from "../components/ui/button"
 import { Input } from "../components/ui/input"
 import { SettingsHeaderButton } from "../components/ui/settings-header-button"
 import type { EditorPreset } from "../../shared/protocol"
-import { SegmentedControl } from "../components/ui/segmented-control"
 import {
   Select,
   SelectContent,
   SelectGroup,
   SelectItem,
+  SelectItemWithThumbnail,
   SelectTrigger,
   SelectValue,
 } from "../components/ui/select"
@@ -48,6 +45,7 @@ import {
 } from "../stores/terminalPreferencesStore"
 import { useChatPreferencesStore } from "../stores/chatPreferencesStore"
 import { useFeatureSettingsStore } from "../stores/featureSettingsStore"
+import { useThemeSettingsStore, type ColorTheme } from "../stores/themeSettingsStore"
 import type { KannaState } from "./useKannaState"
 
 const sidebarItems = [
@@ -84,12 +82,6 @@ export function resolveSettingsSectionId(sectionId: string | undefined): Sidebar
   if (!sectionId) return null
   return sidebarItems.some((item) => item.id === sectionId) ? (sectionId as SidebarPageId) : null
 }
-
-const themeOptions = [
-  { value: "light" as ThemePreference, label: "Light", icon: Sun },
-  { value: "dark" as ThemePreference, label: "Dark", icon: Moon },
-  { value: "system" as ThemePreference, label: "System", icon: Monitor },
-]
 
 const editorOptions: { value: EditorPreset; label: string }[] = [
   { value: "cursor", label: "Cursor" },
@@ -162,6 +154,26 @@ export function getSettingsCloseTarget(historyState: unknown): "back" | "home" {
   }
 
   return "home"
+}
+
+export function getBackgroundSelectionAdjustments({
+  themePreference,
+  nextBackgroundImage,
+  backgroundOpacity,
+}: {
+  themePreference: ThemePreference
+  nextBackgroundImage: string | null
+  backgroundOpacity: number
+}) {
+  const hasBackground = typeof nextBackgroundImage === "string" && nextBackgroundImage.trim() !== ""
+  if (themePreference !== "custom" || !hasBackground || backgroundOpacity !== 1) {
+    return {}
+  }
+
+  return {
+    backgroundOpacity: 0.85,
+    backgroundBlur: 6,
+  }
 }
 
 export function resetSettingsPageChangelogCache() {
@@ -368,12 +380,12 @@ function SettingsRow({
 }) {
   return (
     <div className={bordered ? "border-t border-border" : undefined}>
-      <div className={`flex justify-between gap-8 py-5 ${alignStart ? "items-start" : "items-center"}`}>
+      <div className={`flex flex-col sm:flex-row sm:justify-between gap-3 sm:gap-8 py-5 ${alignStart ? "sm:items-start" : "sm:items-center"}`}>
         <div className="min-w-0 max-w-xl">
           <div className="text-sm font-medium text-foreground">{title}</div>
           <div className="mt-1 text-[13px] text-muted-foreground">{description}</div>
         </div>
-        <div className="flex shrink-0 items-center justify-end">{children}</div>
+        <div className="flex w-full items-center sm:w-auto sm:shrink-0">{children}</div>
       </div>
     </div>
   )
@@ -413,14 +425,31 @@ export function SettingsPage() {
   const setFolderGroupsEnabled = useFeatureSettingsStore((store) => store.setFolderGroupsEnabled)
   const setKanbanStatusesEnabled = useFeatureSettingsStore((store) => store.setKanbanStatusesEnabled)
   const setCommitKannaDirectory = useFeatureSettingsStore((store) => store.setCommitKannaDirectory)
+
+  const colorTheme = useThemeSettingsStore((store) => store.colorTheme)
+  const customAppearance = useThemeSettingsStore((store) => store.customAppearance)
+  const backgroundImage = useThemeSettingsStore((store) => store.backgroundImage)
+  const backgroundOpacity = useThemeSettingsStore((store) => store.backgroundOpacity)
+  const backgroundBlur = useThemeSettingsStore((store) => store.backgroundBlur)
+  const setColorTheme = useThemeSettingsStore((store) => store.setColorTheme)
+  const setCustomAppearance = useThemeSettingsStore((store) => store.setCustomAppearance)
+  const setBackgroundImage = useThemeSettingsStore((store) => store.setBackgroundImage)
+  const setBackgroundOpacity = useThemeSettingsStore((store) => store.setBackgroundOpacity)
+  const setBackgroundBlur = useThemeSettingsStore((store) => store.setBackgroundBlur)
+
   const resolvedKeybindings = useMemo(() => getResolvedKeybindings(keybindings), [keybindings])
   const keybindingsFilePathDisplay = resolvedKeybindings.filePathDisplay || getKeybindingsFilePathDisplay()
   const [scrollbackDraft, setScrollbackDraft] = useState(String(scrollbackLines))
   const [minColumnWidthDraft, setMinColumnWidthDraft] = useState(String(minColumnWidth))
   const [editorCommandDraft, setEditorCommandDraft] = useState(editorCommandTemplate)
+  const [backgroundImageDraft, setBackgroundImageDraft] = useState(backgroundImage ?? "")
+  const [backgroundOpacityDraft, setBackgroundOpacityDraft] = useState(String(backgroundOpacity))
+  const [backgroundBlurDraft, setBackgroundBlurDraft] = useState(String(backgroundBlur))
   const [keybindingDrafts, setKeybindingDrafts] = useState<Record<string, string>>({})
   const [keybindingsError, setKeybindingsError] = useState<string | null>(null)
+  const [systemBackgrounds, setSystemBackgrounds] = useState<{ id: string, name: string, url: string }[]>([])
   const updateSnapshot = state.updateSnapshot
+
   const generalHeaderAction = getGeneralHeaderAction(updateSnapshot)
   const updateStatusLabel = updateSnapshot?.status === "checking"
     ? "Checking for updates…"
@@ -437,6 +466,13 @@ export function SettingsPage() {
               : "Not checked yet"
 
   useEffect(() => {
+    fetch("/api/backgrounds")
+      .then((res) => res.json())
+      .then((data) => setSystemBackgrounds(data))
+      .catch((err) => console.error("Failed to load system backgrounds", err))
+  }, [])
+
+  useEffect(() => {
     setScrollbackDraft(String(scrollbackLines))
   }, [scrollbackLines])
 
@@ -447,6 +483,18 @@ export function SettingsPage() {
   useEffect(() => {
     setEditorCommandDraft(editorCommandTemplate)
   }, [editorCommandTemplate])
+
+  useEffect(() => {
+    setBackgroundImageDraft(backgroundImage ?? "")
+  }, [backgroundImage])
+
+  useEffect(() => {
+    setBackgroundOpacityDraft(String(backgroundOpacity))
+  }, [backgroundOpacity])
+
+  useEffect(() => {
+    setBackgroundBlurDraft(String(backgroundBlur))
+  }, [backgroundBlur])
 
   useEffect(() => {
     setKeybindingDrafts(Object.fromEntries(
@@ -505,6 +553,43 @@ export function SettingsPage() {
     setMinColumnWidth(nextValue)
   }
 
+  function commitBackgroundImage() {
+    const nextValue = backgroundImageDraft.trim() === "" ? null : backgroundImageDraft.trim()
+    const adjustments = getBackgroundSelectionAdjustments({
+      themePreference: theme,
+      nextBackgroundImage: nextValue,
+      backgroundOpacity,
+    })
+    setBackgroundImage(nextValue)
+    if (adjustments.backgroundOpacity !== undefined) {
+      setBackgroundOpacity(adjustments.backgroundOpacity)
+    }
+    if (adjustments.backgroundBlur !== undefined) {
+      setBackgroundBlur(adjustments.backgroundBlur)
+    }
+    void commitThemeSettings({ backgroundImage: nextValue, ...adjustments })
+  }
+
+  function commitBackgroundOpacity() {
+    const nextValue = Number(backgroundOpacityDraft)
+    if (!Number.isFinite(nextValue) || nextValue < 0 || nextValue > 1) {
+      setBackgroundOpacityDraft(String(backgroundOpacity))
+      return
+    }
+    setBackgroundOpacity(nextValue)
+    void commitThemeSettings({ backgroundOpacity: nextValue })
+  }
+
+  function commitBackgroundBlur() {
+    const nextValue = Number(backgroundBlurDraft)
+    if (!Number.isFinite(nextValue) || nextValue < 0) {
+      setBackgroundBlurDraft(String(backgroundBlur))
+      return
+    }
+    setBackgroundBlur(nextValue)
+    void commitThemeSettings({ backgroundBlur: nextValue })
+  }
+
   function handleNumberInputKeyDown(event: KeyboardEvent<HTMLInputElement>, commit: () => void) {
     if (event.key !== "Enter") return
     commit()
@@ -530,6 +615,31 @@ export function SettingsPage() {
       })
     } catch (error) {
       setKeybindingsError(error instanceof Error ? error.message : "Unable to save keybindings.")
+    }
+  }
+
+  async function commitThemeSettings(overrides?: {
+    themePreference?: typeof theme
+    colorTheme?: typeof colorTheme
+    customAppearance?: typeof customAppearance
+    backgroundImage?: typeof backgroundImage
+    backgroundOpacity?: typeof backgroundOpacity
+    backgroundBlur?: typeof backgroundBlur
+  }) {
+    try {
+      await state.socket.command({
+        type: "settings.writeThemeSettings",
+        settings: {
+          themePreference: overrides?.themePreference ?? theme,
+          colorTheme: overrides?.colorTheme ?? colorTheme,
+          customAppearance: overrides?.customAppearance ?? customAppearance,
+          backgroundImage: overrides?.backgroundImage !== undefined ? overrides.backgroundImage : backgroundImage,
+          backgroundOpacity: overrides?.backgroundOpacity ?? backgroundOpacity,
+          backgroundBlur: overrides?.backgroundBlur ?? backgroundBlur,
+        },
+      })
+    } catch (error) {
+      console.error("Failed to save theme settings:", error)
     }
   }
 
@@ -649,7 +759,37 @@ export function SettingsPage() {
         </aside>
 
         <div className="min-w-0 flex-1 overflow-y-auto">
-          <div className="w-full px-6 pt-16 pb-32">
+          {/* Mobile section navigation */}
+          <div className="md:hidden sticky top-0 z-10 bg-background border-b border-border px-4 py-2 backdrop-blur-md">
+            <div className="flex items-center gap-1">
+              <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto scrollbar-hide">
+                {sidebarItems.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => navigate(`/settings/${item.id}`)}
+                    className={`flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm transition-colors ${
+                      item.id === selectedPage
+                        ? "bg-muted font-medium text-foreground"
+                        : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                    }`}
+                  >
+                    <item.icon className="h-3.5 w-3.5 shrink-0" />
+                    <span>{item.label}</span>
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                aria-label="Close settings"
+                onClick={handleCloseSettings}
+                className="ml-1 flex shrink-0 items-center justify-center rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+          <div className="w-full px-6 pt-8 md:pt-16 pb-32">
             {isConnecting ? (
               <div className="flex min-h-[240px] items-center justify-center rounded-2xl border border-border bg-card/40 px-4 py-6 text-sm text-muted-foreground">
                 <div className="flex items-center gap-3">
@@ -671,6 +811,7 @@ export function SettingsPage() {
                         title="Close settings"
                         onClick={handleCloseSettings}
                         icon={<X className="h-4 w-4" />}
+                        className="hidden md:flex"
                       />
                     </div>
                   </div>
@@ -712,29 +853,229 @@ export function SettingsPage() {
 
                       <SettingsRow
                         title="Theme"
-                        description="Choose between light, dark, or system appearance"
+                        description="Choose between light, dark, system, or custom appearance"
                       >
-                        <SegmentedControl
+                        <Select
                           value={theme}
-                          onValueChange={setTheme}
-                          options={themeOptions}
-                          size="sm"
-                        />
+                          onValueChange={(v) => {
+                            setTheme(v as ThemePreference)
+                            void commitThemeSettings({ themePreference: v as ThemePreference })
+                          }}
+                        >
+                          <SelectTrigger className="w-[150px]">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="light">Light</SelectItem>
+                            <SelectItem value="dark">Dark</SelectItem>
+                            <SelectItem value="system">System</SelectItem>
+                            <SelectItem value="custom">Custom</SelectItem>
+                          </SelectContent>
+                        </Select>
                       </SettingsRow>
+
+                      {theme === "custom" ? (
+                        <div className="mb-2 ml-6 space-y-0 border-l border-border/60 pl-4">
+                          <SettingsRow
+                            title="Appearance"
+                            description="Choose light, dark, or system mode for your custom theme"
+                            bordered={false}
+                          >
+                            <Select
+                              value={customAppearance}
+                              onValueChange={(v) => {
+                                setCustomAppearance(v as "light" | "dark" | "system")
+                                void commitThemeSettings({ customAppearance: v as "light" | "dark" | "system" })
+                              }}
+                            >
+                              <SelectTrigger className="w-[150px]">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="light">Light</SelectItem>
+                                <SelectItem value="dark">Dark</SelectItem>
+                                <SelectItem value="system">System</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </SettingsRow>
+
+                          <SettingsRow
+                            title="Color Theme"
+                            description="Choose a color palette for the interface"
+                            alignStart
+                            bordered={false}
+                          >
+                            <Select
+                              value={colorTheme}
+                              onValueChange={(value) => {
+                                setColorTheme(value as ColorTheme)
+                                void commitThemeSettings({ colorTheme: value as ColorTheme })
+                              }}
+                            >
+                              <SelectTrigger className="min-w-[180px]">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectGroup>
+                                  <SelectItem value="default">Default</SelectItem>
+                                  <SelectItem value="tokyo-night">Tokyo Night</SelectItem>
+                                  <SelectItem value="catppuccin">Catppuccin</SelectItem>
+                                  <SelectItem value="dracula">Dracula</SelectItem>
+                                  <SelectItem value="nord">Nord</SelectItem>
+                                  <SelectItem value="everforest">Everforest</SelectItem>
+                                  <SelectItem value="rose-pine">Rose Pine</SelectItem>
+                                </SelectGroup>
+                              </SelectContent>
+                            </Select>
+                          </SettingsRow>
+
+                          <SettingsRow
+                            title="Background Image"
+                            description="Choose a background or enter a custom URL"
+                            alignStart
+                            bordered={false}
+                          >
+                            {(() => {
+                              const currentSystemBg = systemBackgrounds.find(bg => bg.url === backgroundImageDraft)
+                              const isNoBg = !backgroundImageDraft
+                              const isCustomBg = Boolean(backgroundImageDraft) && !currentSystemBg
+                              const bgSelectValue = isNoBg ? "__none__" : isCustomBg ? "__custom__" : backgroundImageDraft
+                              const bgTriggerLabel = isNoBg ? "None" : isCustomBg ? "Custom URL" : (currentSystemBg?.name ?? "Unknown")
+
+                              return (
+                                <div className="flex w-full min-w-0 flex-col gap-2 sm:max-w-[320px]">
+                                  <Select
+                                    value={bgSelectValue}
+                                    onValueChange={(value) => {
+                                      if (value === "__none__") {
+                                        setBackgroundImageDraft("")
+                                        setBackgroundImage(null)
+                                        void commitThemeSettings({ backgroundImage: null })
+                                      } else {
+                                        const adjustments = getBackgroundSelectionAdjustments({
+                                          themePreference: theme,
+                                          nextBackgroundImage: value,
+                                          backgroundOpacity,
+                                        })
+                                        setBackgroundImageDraft(value)
+                                        setBackgroundImage(value)
+                                        if (adjustments.backgroundOpacity !== undefined) {
+                                          setBackgroundOpacity(adjustments.backgroundOpacity)
+                                        }
+                                        if (adjustments.backgroundBlur !== undefined) {
+                                          setBackgroundBlur(adjustments.backgroundBlur)
+                                        }
+                                        void commitThemeSettings({ backgroundImage: value, ...adjustments })
+                                      }
+                                    }}
+                                  >
+                                    <SelectTrigger className="w-full">
+                                      <div className="flex min-w-0 flex-1 items-center gap-2">
+                                        {!isNoBg ? (
+                                          <img
+                                            src={backgroundImageDraft}
+                                            alt=""
+                                            className="h-5 w-9 shrink-0 rounded object-cover"
+                                          />
+                                        ) : null}
+                                        <span className="truncate">{bgTriggerLabel}</span>
+                                      </div>
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItemWithThumbnail value="__none__">None</SelectItemWithThumbnail>
+                                      {systemBackgrounds.map(bg => (
+                                        <SelectItemWithThumbnail
+                                          key={bg.id}
+                                          value={bg.url}
+                                          thumbnail={bg.url}
+                                          thumbnailAlt={bg.name}
+                                        >
+                                          {bg.name}
+                                        </SelectItemWithThumbnail>
+                                      ))}
+                                      {isCustomBg ? (
+                                        <SelectItemWithThumbnail
+                                          value="__custom__"
+                                          thumbnail={backgroundImageDraft}
+                                          thumbnailAlt="Custom"
+                                        >
+                                          Custom URL
+                                        </SelectItemWithThumbnail>
+                                      ) : null}
+                                    </SelectContent>
+                                  </Select>
+                                  <Input
+                                    type="text"
+                                    placeholder="Or enter a custom URL..."
+                                    value={backgroundImageDraft}
+                                    onChange={(event) => setBackgroundImageDraft(event.target.value)}
+                                    onBlur={commitBackgroundImage}
+                                    onKeyDown={(event) => handleTextInputKeyDown(event, commitBackgroundImage)}
+                                    className="w-full"
+                                  />
+                                </div>
+                              )
+                            })()}
+                          </SettingsRow>
+
+                          <SettingsRow
+                            title="Background Opacity"
+                            description="Opacity of the interface layered over the background (0 to 1)"
+                            bordered={false}
+                          >
+                            <div className="flex min-w-0 flex-col items-end gap-2">
+                              <Input
+                                type="number"
+                                min={0}
+                                max={1}
+                                step={0.05}
+                                value={backgroundOpacityDraft}
+                                onChange={(event) => setBackgroundOpacityDraft(event.target.value)}
+                                onBlur={commitBackgroundOpacity}
+                                onKeyDown={(event) => handleNumberInputKeyDown(event, commitBackgroundOpacity)}
+                                className="hide-number-steppers w-28 text-right font-mono"
+                              />
+                            </div>
+                          </SettingsRow>
+
+                          <SettingsRow
+                            title="Background Blur"
+                            description="Blur applied to the background image (in pixels)"
+                            bordered={false}
+                          >
+                            <div className="flex min-w-0 flex-col items-end gap-2">
+                              <Input
+                                type="number"
+                                min={0}
+                                max={50}
+                                step={1}
+                                value={backgroundBlurDraft}
+                                onChange={(event) => setBackgroundBlurDraft(event.target.value)}
+                                onBlur={commitBackgroundBlur}
+                                onKeyDown={(event) => handleNumberInputKeyDown(event, commitBackgroundBlur)}
+                                className="hide-number-steppers w-28 text-right font-mono"
+                              />
+                            </div>
+                          </SettingsRow>
+                        </div>
+                      ) : null}
 
                       <SettingsRow
                         title="Folder Groups"
                         description="Show or hide feature folder grouping in the sidebar. Turning this off keeps the existing feature state, but flattens chats into a direct list and hides the new-folder button."
                       >
-                        <SegmentedControl
+                        <Select
                           value={folderGroupsEnabled ? "enabled" : "disabled"}
                           onValueChange={(value) => setFolderGroupsEnabled(value === "enabled")}
-                          options={[
-                            { value: "disabled", label: "Off" },
-                            { value: "enabled", label: "On" },
-                          ]}
-                          size="sm"
-                        />
+                        >
+                          <SelectTrigger className="w-[100px]">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="disabled">Off</SelectItem>
+                            <SelectItem value="enabled">On</SelectItem>
+                          </SelectContent>
+                        </Select>
                       </SettingsRow>
 
                       {folderGroupsEnabled ? (
@@ -744,15 +1085,18 @@ export function SettingsPage() {
                             description="Show or hide feature status controls like Idea, Todo, Progress, Testing, and Done."
                             bordered={false}
                           >
-                            <SegmentedControl
+                            <Select
                               value={kanbanStatusesEnabled ? "enabled" : "disabled"}
                               onValueChange={(value) => setKanbanStatusesEnabled(value === "enabled")}
-                              options={[
-                                { value: "disabled", label: "Off" },
-                                { value: "enabled", label: "On" },
-                              ]}
-                              size="sm"
-                            />
+                            >
+                              <SelectTrigger className="w-[100px]">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="disabled">Off</SelectItem>
+                                <SelectItem value="enabled">On</SelectItem>
+                              </SelectContent>
+                            </Select>
                           </SettingsRow>
 
                           <SettingsRow
@@ -760,19 +1104,22 @@ export function SettingsPage() {
                             description="Control whether Kanna keeps the project .kanna directory tracked in git or adds it to .gitignore for currently loaded projects and future opens. This is best suited to solo developers working across multiple machines. For team repos, we recommend ignoring `.kanna`."
                             bordered={false}
                           >
-                            <SegmentedControl
+                            <Select
                               value={commitKannaDirectory ? "commit" : "ignore"}
                               onValueChange={(value) => {
                                 const enabled = value === "commit"
                                 setCommitKannaDirectory(enabled)
                                 void state.handleSetCommitKannaDirectory(enabled)
                               }}
-                              options={[
-                                { value: "commit", label: "Commit" },
-                                { value: "ignore", label: "Ignore" },
-                              ]}
-                              size="sm"
-                            />
+                            >
+                              <SelectTrigger className="w-[120px]">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="commit">Commit</SelectItem>
+                                <SelectItem value="ignore">Ignore</SelectItem>
+                              </SelectContent>
+                            </Select>
                           </SettingsRow>
                         </div>
                       ) : null}

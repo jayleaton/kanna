@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react"
 import { useNavigate } from "react-router-dom"
 import { APP_NAME } from "../../shared/branding"
-import { PROVIDERS, type AgentProvider, type AskUserQuestionAnswerMap, type ChatUserMessage, type DirectoryBrowserSnapshot, type FeatureBrowserState, type FeatureStage, type KeybindingsSnapshot, type ModelOptions, type ProviderCatalogEntry, type UpdateInstallResult, type UpdateSnapshot } from "../../shared/types"
+import { PROVIDERS, type AgentProvider, type AskUserQuestionAnswerMap, type ChatUserMessage, type DirectoryBrowserSnapshot, type FeatureBrowserState, type FeatureStage, type KeybindingsSnapshot, type ModelOptions, type ProviderCatalogEntry, type ThemeSettingsSnapshot, type UpdateInstallResult, type UpdateSnapshot } from "../../shared/types"
 import { useChatPreferencesStore } from "../stores/chatPreferencesStore"
+import { useThemeSettingsStore } from "../stores/themeSettingsStore"
 import { useFeatureSettingsStore } from "../stores/featureSettingsStore"
 import { useRightSidebarStore } from "../stores/rightSidebarStore"
 import { useTerminalLayoutStore } from "../stores/terminalLayoutStore"
@@ -323,6 +324,19 @@ export function useKannaState(activeChatId: string | null): KannaState {
     return socket.subscribe<KeybindingsSnapshot>({ type: "keybindings" }, (snapshot) => {
       setKeybindings(snapshot)
       setCommandError(null)
+    })
+  }, [socket])
+
+  useEffect(() => {
+    return socket.subscribe<ThemeSettingsSnapshot>({ type: "theme-settings" }, (snapshot) => {
+      useThemeSettingsStore.setState({
+        themePreference: snapshot.settings.themePreference,
+        colorTheme: snapshot.settings.colorTheme,
+        customAppearance: snapshot.settings.customAppearance,
+        backgroundImage: snapshot.settings.backgroundImage,
+        backgroundOpacity: snapshot.settings.backgroundOpacity,
+        backgroundBlur: snapshot.settings.backgroundBlur,
+      })
     })
   }, [socket])
 

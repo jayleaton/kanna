@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
 import path from "node:path"
-import type { KeybindingsSnapshot, UpdateSnapshot } from "../shared/types"
+import type { KeybindingsSnapshot, ThemeSettingsSnapshot, UpdateSnapshot } from "../shared/types"
 import { PROTOCOL_VERSION } from "../shared/types"
 import { createEmptyState } from "./events"
 import { GitManager } from "./git-manager"
@@ -57,6 +57,24 @@ const DEFAULT_UPDATE_SNAPSHOT: UpdateSnapshot = {
   installAction: "restart",
 }
 
+const DEFAULT_THEME_SETTINGS_SNAPSHOT: ThemeSettingsSnapshot = {
+  settings: {
+    themePreference: "system",
+    colorTheme: "default",
+    customAppearance: "system",
+    backgroundImage: null,
+    backgroundOpacity: 1,
+    backgroundBlur: 0,
+  },
+  warning: null,
+  filePathDisplay: "~/.kanna/theme.json",
+}
+
+const fakeThemeSettings = {
+  getSnapshot: () => DEFAULT_THEME_SETTINGS_SNAPSHOT,
+  onChange: () => () => {},
+} as never
+
 describe("ws-router", () => {
   test("acks system.ping without broadcasting snapshots", () => {
     const router = createWsRouter({
@@ -79,6 +97,7 @@ describe("ws-router", () => {
       getDiscoveredProjects: () => [],
       machineDisplayName: "Local Machine",
       updateManager: null,
+      themeSettings: fakeThemeSettings,
     })
     const ws = new FakeWebSocket()
 
@@ -124,6 +143,7 @@ describe("ws-router", () => {
       getDiscoveredProjects: () => [],
       machineDisplayName: "Local Machine",
       updateManager: null,
+      themeSettings: fakeThemeSettings,
     })
     const ws = new FakeWebSocket()
 
@@ -172,6 +192,7 @@ describe("ws-router", () => {
       getDiscoveredProjects: () => [],
       machineDisplayName: "Local Machine",
       updateManager: null,
+      themeSettings: fakeThemeSettings,
     })
     const ws = new FakeWebSocket()
 
@@ -242,6 +263,7 @@ describe("ws-router", () => {
       getDiscoveredProjects: () => [],
       machineDisplayName: "Local Machine",
       updateManager: null,
+      themeSettings: fakeThemeSettings,
     })
     const ws = new FakeWebSocket()
 
@@ -294,6 +316,7 @@ describe("ws-router", () => {
       getDiscoveredProjects: () => [],
       machineDisplayName: "Local Machine",
       updateManager: null,
+      themeSettings: fakeThemeSettings,
     })
     const ws = new FakeWebSocket()
 
@@ -353,6 +376,7 @@ describe("ws-router", () => {
       getDiscoveredProjects: () => [],
       machineDisplayName: "Local Machine",
       updateManager: null,
+      themeSettings: fakeThemeSettings,
     })
     const ws = new FakeWebSocket()
 
@@ -399,6 +423,7 @@ describe("ws-router", () => {
       getDiscoveredProjects: () => [],
       machineDisplayName: "Local Machine",
       updateManager: null,
+      themeSettings: fakeThemeSettings,
     })
     const ws = new FakeWebSocket()
 
@@ -445,6 +470,7 @@ describe("ws-router", () => {
       getDiscoveredProjects: () => [],
       machineDisplayName: "Local Machine",
       updateManager: null,
+      themeSettings: fakeThemeSettings,
     })
     const ws = new FakeWebSocket()
 
@@ -492,6 +518,7 @@ describe("ws-router", () => {
       getDiscoveredProjects: () => [],
       machineDisplayName: "Local Machine",
       updateManager: null,
+      themeSettings: fakeThemeSettings,
     })
     const ws = new FakeWebSocket()
 
@@ -551,6 +578,7 @@ describe("ws-router", () => {
       getDiscoveredProjects: () => [],
       machineDisplayName: "Local Machine",
       updateManager: null,
+      themeSettings: fakeThemeSettings,
     })
     const ws = new FakeWebSocket()
 
@@ -658,6 +686,7 @@ describe("ws-router", () => {
       getDiscoveredProjects: () => [],
       machineDisplayName: "Local Machine",
       updateManager: updateManager as never,
+      themeSettings: fakeThemeSettings,
     })
     const ws = new FakeWebSocket()
 
@@ -823,6 +852,7 @@ describe("ws-router", () => {
       getDiscoveredProjects: () => [],
       machineDisplayName: "Local Machine",
       updateManager: null,
+      themeSettings: fakeThemeSettings,
     })
     const ws = new FakeWebSocket()
     const homeDir = makeTempDir()
@@ -882,6 +912,7 @@ describe("ws-router", () => {
       getDiscoveredProjects: () => [],
       machineDisplayName: "Local Machine",
       updateManager: null,
+      themeSettings: fakeThemeSettings,
     })
     const ws = new FakeWebSocket()
     const homeDir = makeTempDir()
@@ -936,6 +967,7 @@ describe("ws-router", () => {
       getDiscoveredProjects: () => [],
       machineDisplayName: "Local Machine",
       updateManager: null,
+      themeSettings: fakeThemeSettings,
     })
     const ws = new FakeWebSocket()
     const homeDir = makeTempDir()
@@ -1027,6 +1059,7 @@ describe("ws-router", () => {
         getDiscoveredProjects: () => [],
         machineDisplayName: "Local Machine",
         updateManager: null,
+        themeSettings: fakeThemeSettings,
       })
 
       return { router, store }

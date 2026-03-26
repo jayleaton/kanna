@@ -376,7 +376,7 @@ export function ChatPage() {
         >
           <button
             onClick={state.scrollToBottom}
-            className="flex items-center transition-colors gap-1.5 px-2 bg-white hover:bg-muted border border-border rounded-full aspect-square cursor-pointer text-sm text-primary hover:text-foreground dark:bg-slate-700 dark:hover:bg-slate-600 dark:text-slate-100 dark:border-slate-600"
+            className="flex items-center transition-colors gap-1.5 px-2 bg-background/80 dark:bg-card/40 backdrop-blur-lg hover:bg-muted/80 border border-border rounded-full aspect-square cursor-pointer text-sm text-foreground/80 hover:text-foreground"
           >
             <ArrowDown className="h-5 w-5" />
           </button>
@@ -602,7 +602,7 @@ export function ChatPage() {
             className="fixed inset-0 z-40 bg-black/40 md:hidden"
             onClick={closeMobileRightSidebar}
           />
-          <div className="fixed inset-0 z-50 flex flex-col bg-background md:hidden">
+          <div className="fixed inset-0 z-50 flex flex-col bg-background/95 backdrop-blur-2xl md:hidden">
             <RightSidebar
               onClose={closeMobileRightSidebar}
               className="h-[var(--app-shell-height)]"

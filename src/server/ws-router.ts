@@ -8,6 +8,7 @@ import { EventStore } from "./event-store"
 import { openExternal } from "./external-open"
 import { GitManager } from "./git-manager"
 import { KeybindingsManager } from "./keybindings"
+import { ThemeSettingsManager } from "./theme-settings"
 import { listProjectDirectories, requireProjectDirectory, ensureProjectDirectory } from "./paths"
 import { importProjectHistory } from "./recovery"
 import { TerminalManager } from "./terminal-manager"
@@ -25,6 +26,7 @@ interface CreateWsRouterArgs {
   terminals: TerminalManager
   git: GitManager
   keybindings: KeybindingsManager
+  themeSettings: ThemeSettingsManager
   refreshDiscovery: () => Promise<DiscoveredProject[]>
   getDiscoveredProjects: () => DiscoveredProject[]
   machineDisplayName: string
@@ -41,6 +43,7 @@ export function createWsRouter({
   terminals,
   git,
   keybindings,
+  themeSettings,
   refreshDiscovery,
   getDiscoveredProjects,
   machineDisplayName,
@@ -84,6 +87,18 @@ export function createWsRouter({
         snapshot: {
           type: "keybindings",
           data: keybindings.getSnapshot(),
+        },
+      }
+    }
+
+    if (topic.type === "theme-settings") {
+      return {
+        v: PROTOCOL_VERSION,
+        type: "snapshot",
+        id,
+        snapshot: {
+          type: "theme-settings",
+          data: themeSettings.getSnapshot(),
         },
       }
     }
@@ -198,6 +213,15 @@ export function createWsRouter({
     }
   })
 
+  const disposeThemeSettingsEvents = themeSettings.onChange(() => {
+    for (const ws of sockets) {
+      for (const [id, topic] of ws.data.subscriptions.entries()) {
+        if (topic.type !== "theme-settings") continue
+        send(ws, createEnvelope(id, topic))
+      }
+    }
+  })
+
   const disposeUpdateEvents = updateManager?.onChange(() => {
     for (const ws of sockets) {
       for (const [id, topic] of ws.data.subscriptions.entries()) {
@@ -254,6 +278,11 @@ export function createWsRouter({
         }
         case "settings.writeKeybindings": {
           const snapshot = await keybindings.write(command.bindings)
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: snapshot })
+          return
+        }
+        case "settings.writeThemeSettings": {
+          const snapshot = await themeSettings.write(command.settings)
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: snapshot })
           return
         }
@@ -544,6 +573,7 @@ export function createWsRouter({
     dispose() {
       disposeTerminalEvents()
       disposeKeybindingEvents()
+      disposeThemeSettingsEvents()
       disposeUpdateEvents()
     },
   }
