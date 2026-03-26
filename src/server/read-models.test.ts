@@ -64,7 +64,7 @@ describe("read models", () => {
       lastTurnOutcome: null,
     })
 
-    const chat = deriveChatSnapshot(state, new Map(), "chat-1", {
+    const chat = deriveChatSnapshot(state, new Map(), "chat-1", null, {
       provider: "claude",
       threadTokens: 2000,
       contextWindowTokens: 10000,
@@ -83,6 +83,7 @@ describe("read models", () => {
     expect(chat?.runtime.provider).toBe("claude")
     expect(chat?.usage?.threadTokens).toBe(2000)
     expect(chat?.availableProviders.length).toBeGreaterThan(1)
+    expect(chat?.availableProviders.find((provider) => provider.id === "gemini")?.supportsPlanMode).toBe(true)
     expect(chat?.availableProviders.find((provider) => provider.id === "codex")?.models.map((model) => model.id)).toEqual([
       "gpt-5.4",
       "gpt-5.3-codex",

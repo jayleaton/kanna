@@ -1,11 +1,12 @@
 import React, { useMemo } from "react"
 import type { AskUserQuestionItem, ProcessedToolCall } from "../components/messages/types"
-import type { AskUserQuestionAnswerMap, HydratedTranscriptMessage } from "../../shared/types"
+import type { AskUserQuestionAnswerMap, HydratedTranscriptMessage, PendingToolSnapshot } from "../../shared/types"
 import { UserMessage } from "../components/messages/UserMessage"
 import { RawJsonMessage } from "../components/messages/RawJsonMessage"
 import { SystemMessage } from "../components/messages/SystemMessage"
 import { AccountInfoMessage } from "../components/messages/AccountInfoMessage"
 import { TextMessage } from "../components/messages/TextMessage"
+import { ThoughtMessage } from "../components/messages/ThoughtMessage"
 import { AskUserQuestionMessage } from "../components/messages/AskUserQuestionMessage"
 import { ExitPlanModeMessage } from "../components/messages/ExitPlanModeMessage"
 import { TodoWriteMessage } from "../components/messages/TodoWriteMessage"
@@ -72,6 +73,7 @@ interface KannaTranscriptProps {
     answers: AskUserQuestionAnswerMap
   ) => void
   onExitPlanModeConfirm: (toolUseId: string, confirmed: boolean, clearContext?: boolean, message?: string) => void
+  pendingTool: PendingToolSnapshot | null
 }
 
 export function KannaTranscript({
@@ -82,6 +84,7 @@ export function KannaTranscript({
   onOpenLocalLink,
   onAskUserQuestionSubmit,
   onExitPlanModeConfirm,
+  pendingTool,
 }: KannaTranscriptProps) {
   const renderItems = useMemo(() => groupMessages(messages), [messages])
 
@@ -103,6 +106,8 @@ export function KannaTranscript({
       }
       case "assistant_text":
         return <TextMessage key={message.id} message={message} />
+      case "assistant_thought":
+        return <ThoughtMessage key={message.id} message={message} />
       case "tool":
         if (message.toolKind === "ask_user_question") {
           return (
@@ -121,6 +126,7 @@ export function KannaTranscript({
               message={message}
               onConfirm={onExitPlanModeConfirm}
               isLatest={message.id === latestToolIds.ExitPlanMode}
+              isActionable={pendingTool?.toolKind === "exit_plan_mode" && pendingTool.toolUseId === message.toolId}
             />
           )
         }

@@ -2,6 +2,7 @@ import { query, type CanUseTool, type PermissionResult, type Query, type SDKUser
 import type {
   AgentProvider,
   ChatAttachment,
+  ChatPendingToolSnapshot,
   ChatUsageSnapshot,
   NormalizedToolCall,
   PendingToolSnapshot,
@@ -14,6 +15,7 @@ import type { ClientCommand } from "../shared/protocol"
 import { EventStore } from "./event-store"
 import { persistChatAttachments, resolveAttachmentPath } from "./attachments"
 import { CodexAppServerManager } from "./codex-app-server"
+import { GeminiAcpManager } from "./gemini-acp"
 import { generateTitleForChat } from "./generate-title"
 import type { HarnessEvent, HarnessToolRequest, HarnessTurn } from "./harness-types"
 import {
@@ -21,6 +23,7 @@ import {
   getServerProviderCatalog,
   normalizeClaudeModelOptions,
   normalizeCodexModelOptions,
+  normalizeGeminiModelOptions,
   normalizeServerModel,
 } from "./provider-catalog"
 import { createClaudeRateLimitSnapshot } from "./usage"
@@ -71,6 +74,7 @@ interface AgentCoordinatorArgs {
   onStateChange: () => void
   attachmentsDir: string
   codexManager?: CodexAppServerManager
+  geminiManager?: GeminiAcpManager
   generateTitle?: (messageContent: string, cwd: string) => Promise<string | null>
 }
 
@@ -106,6 +110,42 @@ function discardedToolResult(
 
   return {
     discarded: true,
+  }
+}
+
+function findLatestRecoverableGeminiPlan(messages: TranscriptEntry[]) {
+  const completedToolIds = new Set(
+    messages
+      .filter((entry): entry is Extract<TranscriptEntry, { kind: "tool_result" }> => entry.kind === "tool_result")
+      .map((entry) => entry.toolId)
+  )
+
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const entry = messages[index]
+    if (entry.kind !== "tool_call") continue
+    if (entry.tool.toolKind !== "exit_plan_mode") continue
+    if (completedToolIds.has(entry.tool.toolId)) return null
+    return entry.tool
+  }
+
+  return null
+}
+
+function planModeFollowUp(result: { confirmed?: boolean; message?: string }) {
+  if (result.confirmed) {
+    return {
+      content: result.message
+        ? `Proceed with the approved plan. Additional guidance: ${result.message}`
+        : "Proceed with the approved plan.",
+      planMode: false,
+    }
+  }
+
+  return {
+    content: result.message
+      ? `Revise the plan using this feedback: ${result.message}`
+      : "Revise the plan using this feedback.",
+    planMode: true,
   }
 }
 
@@ -395,6 +435,7 @@ export class AgentCoordinator {
   private readonly onStateChange: () => void
   private readonly attachmentsDir: string
   private readonly codexManager: CodexAppServerManager
+  private readonly geminiManager: GeminiAcpManager
   private readonly generateTitle: (messageContent: string, cwd: string) => Promise<string | null>
   readonly activeTurns = new Map<string, ActiveTurn>()
   readonly liveUsage = new Map<string, ChatUsageSnapshot>()
@@ -404,6 +445,7 @@ export class AgentCoordinator {
     this.onStateChange = args.onStateChange
     this.attachmentsDir = args.attachmentsDir
     this.codexManager = args.codexManager ?? new CodexAppServerManager()
+    this.geminiManager = args.geminiManager ?? new GeminiAcpManager()
     this.generateTitle = args.generateTitle ?? generateTitleForChat
   }
 
@@ -412,17 +454,62 @@ export class AgentCoordinator {
     for (const [chatId, turn] of this.activeTurns.entries()) {
       statuses.set(chatId, turn.status)
     }
+
+    for (const chat of this.store.state.chatsById.values()) {
+      if (chat.deletedAt || statuses.has(chat.id)) continue
+      if (this.getRecoveredGeminiPendingTool(chat.id)) {
+        statuses.set(chat.id, "waiting_for_user")
+      }
+    }
+
     return statuses
   }
 
   getPendingTool(chatId: string): PendingToolSnapshot | null {
     const pending = this.activeTurns.get(chatId)?.pendingTool
-    if (!pending) return null
-    return { toolUseId: pending.toolUseId, toolKind: pending.tool.toolKind }
+    if (pending) {
+      return { toolUseId: pending.toolUseId, toolKind: pending.tool.toolKind }
+    }
+
+    return this.getRecoveredGeminiPendingTool(chatId)
   }
 
   getLiveUsage(chatId: string) {
     return this.liveUsage.get(chatId) ?? null
+  }
+
+  getChatPendingTool(chatId: string): ChatPendingToolSnapshot | null {
+    const pending = this.activeTurns.get(chatId)?.pendingTool
+    if (pending) {
+      return {
+        toolUseId: pending.toolUseId,
+        toolKind: pending.tool.toolKind,
+        source: "active",
+      }
+    }
+
+    const recovered = this.getRecoveredGeminiPendingTool(chatId)
+    return recovered
+      ? {
+          ...recovered,
+          source: "recovered",
+        }
+      : null
+  }
+
+  private getRecoveredGeminiPendingTool(chatId: string): PendingToolSnapshot | null {
+    if (this.activeTurns.has(chatId)) return null
+
+    const chat = this.store.getChat(chatId)
+    if (!chat || chat.provider !== "gemini" || !chat.planMode) return null
+
+    const pendingTool = findLatestRecoverableGeminiPlan(this.store.getMessages(chatId))
+    if (!pendingTool) return null
+
+    return {
+      toolUseId: pendingTool.toolId,
+      toolKind: pendingTool.toolKind,
+    }
   }
 
   private resolveProvider(command: Extract<ClientCommand, { type: "chat.send" }>, currentProvider: AgentProvider | null) {
@@ -437,6 +524,16 @@ export class AgentCoordinator {
       return {
         model: normalizeServerModel(provider, command.model),
         effort: modelOptions.reasoningEffort,
+        serviceTier: undefined,
+        planMode: catalog.supportsPlanMode ? Boolean(command.planMode) : false,
+      }
+    }
+
+    if (provider === "gemini") {
+      const modelOptions = normalizeGeminiModelOptions(command.modelOptions)
+      return {
+        model: normalizeServerModel(provider, command.model),
+        effort: modelOptions.thinkingMode,
         serviceTier: undefined,
         planMode: catalog.supportsPlanMode ? Boolean(command.planMode) : false,
       }
@@ -526,6 +623,17 @@ export class AgentCoordinator {
         localPath: project.localPath,
         model: args.model,
         effort: args.effort,
+        planMode: args.planMode,
+        sessionToken: chat.sessionToken,
+        onToolRequest,
+      })
+    } else if (args.provider === "gemini") {
+      turn = await this.geminiManager.startTurn({
+        chatId: args.chatId,
+        content: args.content,
+        localPath: project.localPath,
+        model: args.model,
+        thinkingMode: (args.effort as "off" | "standard" | "high" | undefined) ?? "standard",
         planMode: args.planMode,
         sessionToken: chat.sessionToken,
         onToolRequest,
@@ -658,6 +766,9 @@ export class AgentCoordinator {
         }
 
         if (!event.entry) continue
+        if (active.hasFinalResult && event.entry.kind === "result") {
+          continue
+        }
         await this.store.appendMessage(active.chatId, event.entry)
 
         if (event.entry.kind === "system_init") {
@@ -676,7 +787,7 @@ export class AgentCoordinator {
         this.onStateChange()
       }
     } catch (error) {
-      if (!active.cancelRequested) {
+      if (!active.cancelRequested && !active.hasFinalResult) {
         const message = error instanceof Error ? error.message : String(error)
         await this.store.appendMessage(
           active.chatId,
@@ -768,10 +879,84 @@ export class AgentCoordinator {
     this.onStateChange()
   }
 
+  async shutdown(chatId: string) {
+    const active = this.activeTurns.get(chatId)
+    if (!active) return
+
+    const pendingTool = active.pendingTool
+    const shouldPreserveGeminiPlan =
+      active.provider === "gemini" &&
+      pendingTool?.tool.toolKind === "exit_plan_mode"
+
+    if (!shouldPreserveGeminiPlan) {
+      await this.cancel(chatId)
+      return
+    }
+
+    active.cancelRequested = true
+    active.cancelRecorded = true
+    active.hasFinalResult = true
+    active.pendingTool = null
+    active.postToolFollowUp = null
+    active.turn.close()
+    this.activeTurns.delete(chatId)
+    this.onStateChange()
+  }
+
   async respondTool(command: Extract<ClientCommand, { type: "chat.respondTool" }>) {
     const active = this.activeTurns.get(command.chatId)
     if (!active || !active.pendingTool) {
-      throw new Error("No pending tool request")
+      const recoveredPending = this.getRecoveredGeminiPendingTool(command.chatId)
+      const chat = this.store.getChat(command.chatId)
+      if (!recoveredPending || !chat || chat.provider !== "gemini") {
+        throw new Error("No pending tool request")
+      }
+
+      if (recoveredPending.toolUseId !== command.toolUseId) {
+        throw new Error("Tool response does not match active request")
+      }
+
+      await this.store.appendMessage(
+        command.chatId,
+        timestamped({
+          kind: "tool_result",
+          toolId: command.toolUseId,
+          content: command.result,
+        })
+      )
+
+      const result = (command.result ?? {}) as {
+        confirmed?: boolean
+        clearContext?: boolean
+        message?: string
+      }
+      if (result.confirmed && result.clearContext) {
+        this.liveUsage.delete(command.chatId)
+        await this.store.setSessionToken(command.chatId, null)
+        await this.store.appendMessage(command.chatId, timestamped({ kind: "context_cleared" }))
+      }
+
+      const followUp = planModeFollowUp(result)
+
+      const settings = this.getProviderSettings("gemini", {
+        type: "chat.send",
+        chatId: command.chatId,
+        message: { text: "" },
+      })
+
+      await this.startTurnForChat({
+        chatId: command.chatId,
+        provider: "gemini",
+        content: followUp.content,
+        model: settings.model,
+        effort: settings.effort,
+        serviceTier: settings.serviceTier,
+        planMode: followUp.planMode,
+        appendUserPrompt: null,
+      })
+
+      this.onStateChange()
+      return
     }
 
     const pending = active.pendingTool
@@ -804,19 +989,7 @@ export class AgentCoordinator {
       }
 
       if (active.provider === "codex") {
-        active.postToolFollowUp = result.confirmed
-          ? {
-              content: result.message
-                ? `Proceed with the approved plan. Additional guidance: ${result.message}`
-                : "Proceed with the approved plan.",
-              planMode: false,
-            }
-          : {
-              content: result.message
-                ? `Revise the plan using this feedback: ${result.message}`
-                : "Revise the plan using this feedback.",
-              planMode: true,
-            }
+        active.postToolFollowUp = planModeFollowUp(result)
       }
     }
 
