@@ -14,6 +14,7 @@ interface Props {
   chat: SidebarChatRow
   activeChatId: string | null
   nowMs: number
+  showProviderIcon?: boolean
   onSelectChat: (chatId: string) => void
   onDeleteChat: (chatId: string) => void
   draggable?: boolean
@@ -30,6 +31,7 @@ export function ChatRow({
   chat,
   activeChatId,
   nowMs,
+  showProviderIcon = false,
   onSelectChat,
   onDeleteChat,
   draggable = false,
@@ -86,7 +88,7 @@ export function ChatRow({
             </div>
           </div>
         ) : null}
-        {ProviderIcon ? (
+        {showProviderIcon && ProviderIcon ? (
           <ProviderIcon
             className="size-3.5 flex-shrink-0 text-muted-foreground/80"
             aria-label={`${chat.provider} provider`}

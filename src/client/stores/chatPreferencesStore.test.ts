@@ -50,6 +50,7 @@ describe("migrateChatPreferencesState", () => {
           planMode: false,
         },
       },
+      showProviderIconsInSideTray: false,
       composerState: {
         provider: "claude",
         model: "sonnet",
@@ -75,6 +76,15 @@ describe("chat preference store", () => {
       modelOptions: { reasoningEffort: "minimal", fastMode: true },
       planMode: true,
     })
+    expect(state.composerState).toEqual(INITIAL_STATE.composerState)
+  })
+
+  test("stores the side tray provider icon preference separately", () => {
+    useChatPreferencesStore.getState().setShowProviderIconsInSideTray(true)
+
+    const state = useChatPreferencesStore.getState()
+    expect(state.showProviderIconsInSideTray).toBe(true)
+    expect(state.providerDefaults).toEqual(INITIAL_STATE.providerDefaults)
     expect(state.composerState).toEqual(INITIAL_STATE.composerState)
   })
 

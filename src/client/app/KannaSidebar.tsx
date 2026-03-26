@@ -6,6 +6,7 @@ import { Button } from "../components/ui/button"
 import { cn } from "../lib/utils"
 import { ChatRow } from "../components/chat-ui/sidebar/ChatRow"
 import { LocalProjectsSection } from "../components/chat-ui/sidebar/LocalProjectsSection"
+import { useChatPreferencesStore } from "../stores/chatPreferencesStore"
 import type { FeatureBrowserState, FeatureStage, SidebarData, SidebarChatRow, SidebarProjectGroup, UpdateSnapshot } from "../../shared/types"
 import type { SocketStatus } from "./socket"
 import { useProjectGroupOrderStore } from "../stores/projectGroupOrderStore"
@@ -249,6 +250,7 @@ export function KannaSidebar({
       onClose()
     }
   }, [navigate, onClose, open])
+  const showProviderIconsInSideTray = useChatPreferencesStore((store) => store.showProviderIconsInSideTray)
 
   const renderChatRow = useCallback((chat: SidebarChatRow, options?: {
     draggable?: boolean
@@ -263,6 +265,7 @@ export function KannaSidebar({
       chat={chat}
       activeChatId={activeChatId}
       nowMs={nowMs}
+      showProviderIcon={showProviderIconsInSideTray}
       onSelectChat={handleSelectChat}
       onDeleteChat={() => onDeleteChat(chat)}
       draggable={options?.draggable}
@@ -272,7 +275,7 @@ export function KannaSidebar({
       onTouchDragMove={options?.onTouchDragMove}
       onTouchDragEnd={options?.onTouchDragEnd}
     />
-  ), [activeChatId, handleSelectChat, nowMs, onDeleteChat])
+  ), [activeChatId, handleSelectChat, nowMs, onDeleteChat, showProviderIconsInSideTray])
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {

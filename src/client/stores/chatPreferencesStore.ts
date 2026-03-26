@@ -50,7 +50,7 @@ export type ComposerState =
 
 type PersistedChatPreferencesState = Pick<
   ChatPreferencesState,
-  "defaultProvider" | "providerDefaults" | "composerState"
+  "defaultProvider" | "providerDefaults" | "composerState" | "showProviderIconsInSideTray"
 > & Partial<{
   liveProvider: AgentProvider
   livePreferences: ChatProviderPreferences
@@ -278,6 +278,7 @@ interface ChatPreferencesState {
   defaultProvider: DefaultProviderPreference
   providerDefaults: ChatProviderPreferences
   composerState: ComposerState
+  showProviderIconsInSideTray: boolean
   setDefaultProvider: (provider: DefaultProviderPreference) => void
   setProviderDefaultModel: (provider: AgentProvider, model: string) => void
   setProviderDefaultModelOptions: <TProvider extends AgentProvider>(
@@ -285,6 +286,7 @@ interface ChatPreferencesState {
     modelOptions: Partial<ProviderModelOptionsByProvider[TProvider]>
   ) => void
   setProviderDefaultPlanMode: (provider: AgentProvider, planMode: boolean) => void
+  setShowProviderIconsInSideTray: (show: boolean) => void
   setComposerProvider: (provider: AgentProvider) => void
   setComposerModel: (model: string) => void
   setComposerModelOptions: (modelOptions: Partial<ClaudeModelOptions> | Partial<CodexModelOptions> | Partial<GeminiModelOptions>) => void
@@ -295,12 +297,13 @@ interface ChatPreferencesState {
 
 export function migrateChatPreferencesState(
   persistedState: Partial<PersistedChatPreferencesState> | undefined
-): Pick<ChatPreferencesState, "defaultProvider" | "providerDefaults" | "composerState"> {
+): Pick<ChatPreferencesState, "defaultProvider" | "providerDefaults" | "composerState" | "showProviderIconsInSideTray"> {
   const providerDefaults = normalizeProviderDefaults(persistedState?.providerDefaults)
 
   return {
     defaultProvider: normalizeDefaultProvider(persistedState?.defaultProvider),
     providerDefaults,
+    showProviderIconsInSideTray: persistedState?.showProviderIconsInSideTray === true,
     composerState: normalizeComposerState(
       persistedState?.composerState,
       providerDefaults,
@@ -315,6 +318,7 @@ export const useChatPreferencesStore = create<ChatPreferencesState>()(
     (set) => ({
       defaultProvider: "last_used",
       providerDefaults: createDefaultProviderDefaults(),
+      showProviderIconsInSideTray: false,
       composerState: {
         provider: "claude",
         model: "opus",
@@ -322,6 +326,7 @@ export const useChatPreferencesStore = create<ChatPreferencesState>()(
         planMode: false,
       },
       setDefaultProvider: (defaultProvider) => set({ defaultProvider }),
+      setShowProviderIconsInSideTray: (showProviderIconsInSideTray) => set({ showProviderIconsInSideTray }),
       setProviderDefaultModel: (provider, model) =>
         set((state) => ({
           providerDefaults: {
@@ -513,7 +518,7 @@ export const useChatPreferencesStore = create<ChatPreferencesState>()(
     }),
     {
       name: "chat-preferences",
-      version: 3,
+      version: 4,
       migrate: (persistedState) => migrateChatPreferencesState(persistedState as Partial<PersistedChatPreferencesState> | undefined),
     }
   )

@@ -19,7 +19,22 @@ function createChat(provider: SidebarChatRow["provider"]): SidebarChatRow {
 }
 
 describe("ChatRow", () => {
-  test("renders the provider icon when the chat has a provider", () => {
+  test("renders the provider icon when enabled and the chat has a provider", () => {
+    const html = renderToStaticMarkup(
+      <ChatRow
+        chat={createChat("claude")}
+        activeChatId={null}
+        nowMs={1000}
+        showProviderIcon
+        onSelectChat={() => {}}
+        onDeleteChat={() => {}}
+      />
+    )
+
+    expect(html).toContain('aria-label="claude provider"')
+  })
+
+  test("does not render a provider icon when disabled", () => {
     const html = renderToStaticMarkup(
       <ChatRow
         chat={createChat("claude")}
@@ -30,7 +45,7 @@ describe("ChatRow", () => {
       />
     )
 
-    expect(html).toContain('aria-label="claude provider"')
+    expect(html).not.toContain('aria-label="claude provider"')
   })
 
   test("does not render a provider icon when the provider is missing", () => {
@@ -39,6 +54,7 @@ describe("ChatRow", () => {
         chat={createChat(null)}
         activeChatId={null}
         nowMs={1000}
+        showProviderIcon
         onSelectChat={() => {}}
         onDeleteChat={() => {}}
       />
