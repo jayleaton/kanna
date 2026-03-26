@@ -9,6 +9,7 @@ import { openExternal } from "./external-open"
 import { KeybindingsManager } from "./keybindings"
 import { ensureProjectDirectory } from "./paths"
 import { TerminalManager } from "./terminal-manager"
+import type { UpdateManager } from "./update-manager"
 import { deriveChatSnapshot, deriveLocalProjectsSnapshot, deriveSidebarData } from "./read-models"
 
 export interface ClientState {
@@ -23,6 +24,7 @@ interface CreateWsRouterArgs {
   refreshDiscovery: () => Promise<DiscoveredProject[]>
   getDiscoveredProjects: () => DiscoveredProject[]
   machineDisplayName: string
+  updateManager: UpdateManager | null
 }
 
 function send(ws: ServerWebSocket<ClientState>, message: ServerEnvelope) {
@@ -37,6 +39,7 @@ export function createWsRouter({
   refreshDiscovery,
   getDiscoveredProjects,
   machineDisplayName,
+  updateManager,
 }: CreateWsRouterArgs) {
   const sockets = new Set<ServerWebSocket<ClientState>>()
 
@@ -76,6 +79,26 @@ export function createWsRouter({
         snapshot: {
           type: "keybindings",
           data: keybindings.getSnapshot(),
+        },
+      }
+    }
+
+    if (topic.type === "update") {
+      return {
+        v: PROTOCOL_VERSION,
+        type: "snapshot",
+        id,
+        snapshot: {
+          type: "update",
+          data: updateManager?.getSnapshot() ?? {
+            currentVersion: "unknown",
+            latestVersion: null,
+            status: "idle",
+            updateAvailable: false,
+            lastCheckedAt: null,
+            error: null,
+            installAction: "restart",
+          },
         },
       }
     }
@@ -151,12 +174,49 @@ export function createWsRouter({
     }
   })
 
+  const disposeUpdateEvents = updateManager?.onChange(() => {
+    for (const ws of sockets) {
+      for (const [id, topic] of ws.data.subscriptions.entries()) {
+        if (topic.type !== "update") continue
+        send(ws, createEnvelope(id, topic))
+      }
+    }
+  }) ?? (() => {})
+
   async function handleCommand(ws: ServerWebSocket<ClientState>, message: Extract<ClientEnvelope, { type: "command" }>) {
     const { command, id } = message
     try {
       switch (command.type) {
         case "system.ping": {
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id })
+          return
+        }
+        case "update.check": {
+          const snapshot = updateManager
+            ? await updateManager.checkForUpdates({ force: command.force })
+            : {
+                currentVersion: "unknown",
+                latestVersion: null,
+                status: "error",
+                updateAvailable: false,
+                lastCheckedAt: Date.now(),
+                error: "Update manager unavailable.",
+                installAction: "restart",
+              }
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: snapshot })
+          return
+        }
+        case "update.install": {
+          if (!updateManager) {
+            throw new Error("Update manager unavailable.")
+          }
+          const result = await updateManager.installUpdate()
+          send(ws, {
+            v: PROTOCOL_VERSION,
+            type: "ack",
+            id,
+            result,
+          })
           return
         }
         case "settings.readKeybindings": {
@@ -316,6 +376,7 @@ export function createWsRouter({
     dispose() {
       disposeTerminalEvents()
       disposeKeybindingEvents()
+      disposeUpdateEvents()
     },
   }
 }

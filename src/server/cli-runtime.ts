@@ -2,7 +2,9 @@ import process from "node:process"
 import { spawnSync } from "node:child_process"
 import { hasCommand, spawnDetached } from "./process-utils"
 import { APP_NAME, CLI_COMMAND, getDataDirDisplay, LOG_PREFIX, PACKAGE_NAME } from "../shared/branding"
+import type { UpdateInstallErrorCode } from "../shared/types"
 import { PROD_SERVER_PORT } from "../shared/ports"
+import { CLI_SUPPRESS_OPEN_ONCE_ENV_VAR } from "./restart"
 
 export interface CliOptions {
   port: number
@@ -11,9 +13,22 @@ export interface CliOptions {
   strictPort: boolean
 }
 
+export interface CliUpdateOptions {
+  version: string
+  fetchLatestVersion: (packageName: string) => Promise<string>
+  installVersion: (packageName: string, version: string) => UpdateInstallAttemptResult
+  argv: string[]
+  command: string
+}
+
 export interface StartedCli {
   kind: "started"
   stop: () => Promise<void>
+}
+
+export interface RestartingCli {
+  kind: "restarting"
+  reason: "startup_update" | "ui_update"
 }
 
 export interface ExitedCli {
@@ -21,18 +36,24 @@ export interface ExitedCli {
   code: number
 }
 
-export type CliRunResult = StartedCli | ExitedCli
+export type CliRunResult = StartedCli | RestartingCli | ExitedCli
 
 export interface CliRuntimeDeps {
   version: string
   bunVersion: string
-  startServer: (options: CliOptions) => Promise<{ port: number; stop: () => Promise<void> }>
+  startServer: (options: CliOptions & { update: CliUpdateOptions }) => Promise<{ port: number; stop: () => Promise<void> }>
   fetchLatestVersion: (packageName: string) => Promise<string>
-  installLatest: (packageName: string) => boolean
-  relaunch: (command: string, args: string[]) => number | null
+  installVersion: (packageName: string, version: string) => UpdateInstallAttemptResult
   openUrl: (url: string) => void
   log: (message: string) => void
   warn: (message: string) => void
+}
+
+export interface UpdateInstallAttemptResult {
+  ok: boolean
+  errorCode: UpdateInstallErrorCode | null
+  userTitle: string | null
+  userMessage: string | null
 }
 
 type ParsedArgs =
@@ -49,8 +70,9 @@ Usage:
   ${CLI_COMMAND} [options]
 
 Options:
-  --port <number>       Port to listen on (default: ${PROD_SERVER_PORT})
-  --remote [host]      Bind all interfaces (or a specific host/IP)
+  --port <number>      Port to listen on (default: ${PROD_SERVER_PORT})
+  --host <host>        Bind to a specific host or IP
+  --remote             Shortcut for --host 0.0.0.0
   --strict-port        Fail instead of trying another port
   --no-open            Don't open browser automatically
   --version            Print version and exit
@@ -78,14 +100,15 @@ export function parseArgs(argv: string[]): ParsedArgs {
       index += 1
       continue
     }
-    if (arg === "--remote") {
+    if (arg === "--host") {
       const next = argv[index + 1]
-      if (next && !next.startsWith("-")) {
-        host = next
-        index += 1
-      } else {
-        host = "0.0.0.0"
-      }
+      if (!next || next.startsWith("-")) throw new Error("Missing value for --host")
+      host = next
+      index += 1
+      continue
+    }
+    if (arg === "--remote") {
+      host = "0.0.0.0"
       continue
     }
     if (arg === "--no-open") {
@@ -135,7 +158,7 @@ function normalizeVersion(version: string) {
     .filter((part) => Number.isFinite(part))
 }
 
-async function maybeSelfUpdate(argv: string[], deps: CliRuntimeDeps) {
+async function maybeSelfUpdate(_argv: string[], deps: CliRuntimeDeps) {
   if (process.env.KANNA_DISABLE_SELF_UPDATE === "1") {
     return null
   }
@@ -158,20 +181,18 @@ async function maybeSelfUpdate(argv: string[], deps: CliRuntimeDeps) {
     return null
   }
 
-  deps.log(`${LOG_PREFIX} updating to ${latestVersion}`)
-  if (!deps.installLatest(PACKAGE_NAME)) {
+  deps.log(`${LOG_PREFIX} installing ${PACKAGE_NAME}@${latestVersion}`)
+  const installResult = deps.installVersion(PACKAGE_NAME, latestVersion)
+  if (!installResult.ok) {
     deps.warn(`${LOG_PREFIX} update failed, continuing current version`)
+    if (installResult.userMessage) {
+      deps.warn(`${LOG_PREFIX} ${installResult.userMessage}`)
+    }
     return null
   }
 
   deps.log(`${LOG_PREFIX} restarting into updated version`)
-  const exitCode = deps.relaunch(CLI_COMMAND, argv)
-  if (exitCode === null) {
-    deps.warn(`${LOG_PREFIX} restart failed, continuing current version`)
-    return null
-  }
-
-  return exitCode
+  return "startup_update"
 }
 
 export async function runCli(argv: string[], deps: CliRuntimeDeps): Promise<CliRunResult> {
@@ -190,22 +211,30 @@ export async function runCli(argv: string[], deps: CliRuntimeDeps): Promise<CliR
     return { kind: "exited", code: 1 }
   }
 
-  const relaunchExitCode = await maybeSelfUpdate(argv, deps)
-  if (relaunchExitCode !== null) {
-    return { kind: "exited", code: relaunchExitCode }
+  const shouldRestart = await maybeSelfUpdate(argv, deps)
+  if (shouldRestart !== null) {
+    return { kind: "restarting", reason: shouldRestart }
   }
 
-  const { port, stop } = await deps.startServer(parsedArgs.options)
+  const { port, stop } = await deps.startServer({
+    ...parsedArgs.options,
+    update: {
+      version: deps.version,
+      fetchLatestVersion: deps.fetchLatestVersion,
+      installVersion: deps.installVersion,
+      argv,
+      command: CLI_COMMAND,
+    },
+  })
   const bindHost = parsedArgs.options.host
-  // For display / browser-open, map internal bind addresses to user-friendly names
-  const displayHost =
-    bindHost === "127.0.0.1" || bindHost === "0.0.0.0" ? "localhost" : bindHost
+  const displayHost = bindHost === "127.0.0.1" || bindHost === "0.0.0.0" ? "localhost" : bindHost
   const launchUrl = `http://${displayHost}:${port}`
 
   deps.log(`${LOG_PREFIX} listening on http://${bindHost}:${port}`)
   deps.log(`${LOG_PREFIX} data dir: ${getDataDirDisplay()}`)
 
-  if (parsedArgs.options.openBrowser) {
+  const suppressOpenBrowser = process.env[CLI_SUPPRESS_OPEN_ONCE_ENV_VAR] === "1"
+  if (parsedArgs.options.openBrowser && !suppressOpenBrowser) {
     deps.openUrl(launchUrl)
   }
 
@@ -241,14 +270,51 @@ export async function fetchLatestPackageVersion(packageName: string) {
   return payload.version
 }
 
-export function installLatestPackage(packageName: string) {
-  if (!hasCommand("bun")) return false
-  const result = spawnSync("bun", ["install", "-g", `${packageName}@latest`], { stdio: "inherit" })
-  return result.status === 0
+export function classifyInstallVersionFailure(output: string): UpdateInstallAttemptResult {
+  const normalizedOutput = output.trim()
+  if (/No version matching .* found|failed to resolve/i.test(normalizedOutput)) {
+    return {
+      ok: false,
+      errorCode: "version_not_live_yet",
+      userTitle: "Update not live yet",
+      userMessage: "This update is still propagating. Try again in a few minutes.",
+    }
+  }
+
+  return {
+    ok: false,
+    errorCode: "install_failed",
+    userTitle: "Update failed",
+    userMessage: "Kanna could not install the update. Try again later.",
+  }
 }
 
-export function relaunchCli(command: string, args: string[]) {
-  const result = spawnSync(command, args, { stdio: "inherit" })
-  if (result.error) return null
-  return result.status ?? 0
+export function installPackageVersion(packageName: string, version: string) {
+  if (!hasCommand("bun")) {
+    return {
+      ok: false,
+      errorCode: "command_missing",
+      userTitle: "Bun not found",
+      userMessage: "Kanna could not find Bun to install the update.",
+    } satisfies UpdateInstallAttemptResult
+  }
+
+  const result = spawnSync("bun", ["install", "-g", `${packageName}@${version}`], {
+    stdio: ["ignore", "pipe", "pipe"],
+    encoding: "utf8",
+  })
+  const stdout = result.stdout ?? ""
+  const stderr = result.stderr ?? ""
+  if (stdout) process.stdout.write(stdout)
+  if (stderr) process.stderr.write(stderr)
+  if (result.status === 0) {
+    return {
+      ok: true,
+      errorCode: null,
+      userTitle: null,
+      userMessage: null,
+    } satisfies UpdateInstallAttemptResult
+  }
+
+  return classifyInstallVersionFailure(`${stdout}\n${stderr}`)
 }

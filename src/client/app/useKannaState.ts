@@ -1,7 +1,18 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react"
 import { useNavigate } from "react-router-dom"
 import { APP_NAME } from "../../shared/branding"
-import { PROVIDERS, type AgentProvider, type AskUserQuestionAnswerMap, type ChatUserMessage, type ModelOptions, type ProviderCatalogEntry } from "../../shared/types"
+import {
+  PROVIDERS,
+  type AgentProvider,
+  type AskUserQuestionAnswerMap,
+  type ChatUserMessage,
+  type KeybindingsSnapshot,
+  type ModelOptions,
+  type ProviderCatalogEntry,
+  type UpdateInstallResult,
+  type UpdateSnapshot,
+} from "../../shared/types"
+import { useChatPreferencesStore } from "../stores/chatPreferencesStore"
 import { useRightSidebarStore } from "../stores/rightSidebarStore"
 import { useTerminalLayoutStore } from "../stores/terminalLayoutStore"
 import { getEditorPresetLabel, useTerminalPreferencesStore } from "../stores/terminalPreferencesStore"
@@ -41,17 +52,97 @@ function useKannaSocket() {
   return socketRef.current as KannaSocket
 }
 
+function logKannaState(message: string, details?: unknown) {
+  if (details === undefined) {
+    console.info(`[useKannaState] ${message}`)
+    return
+  }
+
+  console.info(`[useKannaState] ${message}`, details)
+}
+
 export function shouldPinTranscriptToBottom(distanceFromBottom: number) {
   return distanceFromBottom < 120
 }
 
+export function getUiUpdateRestartReconnectAction(
+  phase: string | null,
+  connectionStatus: SocketStatus
+): "none" | "awaiting_reconnect" | "navigate_changelog" {
+  if (phase === "awaiting_disconnect" && connectionStatus === "disconnected") {
+    return "awaiting_reconnect"
+  }
+
+  if (phase === "awaiting_reconnect" && connectionStatus === "connected") {
+    return "navigate_changelog"
+  }
+
+  return "none"
+}
+
 const FIXED_TRANSCRIPT_PADDING_BOTTOM = 320
+const UI_UPDATE_RESTART_STORAGE_KEY = "kanna:ui-update-restart"
+
+function getUiUpdateRestartPhase() {
+  return window.sessionStorage.getItem(UI_UPDATE_RESTART_STORAGE_KEY)
+}
+
+function setUiUpdateRestartPhase(phase: "awaiting_disconnect" | "awaiting_reconnect") {
+  window.sessionStorage.setItem(UI_UPDATE_RESTART_STORAGE_KEY, phase)
+}
+
+function clearUiUpdateRestartPhase() {
+  window.sessionStorage.removeItem(UI_UPDATE_RESTART_STORAGE_KEY)
+}
+
+export interface ProjectRequest {
+  mode: "new" | "existing"
+  localPath: string
+  title: string
+}
+
+export type StartChatIntent =
+  | { kind: "project_id"; projectId: string }
+  | { kind: "local_path"; localPath: string }
+  | { kind: "project_request"; project: ProjectRequest }
+
+export function resolveComposeIntent(params: {
+  selectedProjectId: string | null
+  sidebarProjectId?: string | null
+  fallbackLocalProjectPath?: string | null
+}): StartChatIntent | null {
+  const projectId = params.selectedProjectId ?? params.sidebarProjectId ?? null
+  if (projectId) {
+    return { kind: "project_id", projectId }
+  }
+
+  if (params.fallbackLocalProjectPath) {
+    return { kind: "local_path", localPath: params.fallbackLocalProjectPath }
+  }
+
+  return null
+}
+
+export function getActiveChatSnapshot(chatSnapshot: ChatSnapshot | null, activeChatId: string | null): ChatSnapshot | null {
+  if (!chatSnapshot) return null
+  if (!activeChatId) return null
+  if (chatSnapshot.runtime.chatId !== activeChatId) {
+    logKannaState("stale snapshot masked", {
+      routeChatId: activeChatId,
+      snapshotChatId: chatSnapshot.runtime.chatId,
+      snapshotProvider: chatSnapshot.runtime.provider,
+    })
+    return null
+  }
+  return chatSnapshot
+}
 
 export interface KannaState {
   socket: KannaSocket
   activeChatId: string | null
   sidebarData: SidebarData
   localProjects: LocalProjectsSnapshot | null
+  updateSnapshot: UpdateSnapshot | null
   chatSnapshot: ChatSnapshot | null
   keybindings: KeybindingsSnapshot | null
   connectionStatus: SocketStatus
@@ -82,7 +173,9 @@ export interface KannaState {
   scrollToBottom: () => void
   handleCreateChat: (projectId: string) => Promise<void>
   handleOpenLocalProject: (localPath: string) => Promise<void>
-  handleCreateProject: (project: { mode: "new" | "existing"; localPath: string; title: string }) => Promise<void>
+  handleCreateProject: (project: ProjectRequest) => Promise<void>
+  handleCheckForUpdates: (options?: { force?: boolean }) => Promise<void>
+  handleInstallUpdate: () => Promise<void>
   handleSend: (message: ChatUserMessage, options?: { provider?: AgentProvider; model?: string; modelOptions?: ModelOptions; planMode?: boolean }) => Promise<void>
   handleCancel: () => Promise<void>
   handleDeleteChat: (chat: SidebarChatRow) => Promise<void>
@@ -111,6 +204,7 @@ export function useKannaState(activeChatId: string | null): KannaState {
 
   const [sidebarData, setSidebarData] = useState<SidebarData>({ projectGroups: [] })
   const [localProjects, setLocalProjects] = useState<LocalProjectsSnapshot | null>(null)
+  const [updateSnapshot, setUpdateSnapshot] = useState<UpdateSnapshot | null>(null)
   const [chatSnapshot, setChatSnapshot] = useState<ChatSnapshot | null>(null)
   const [keybindings, setKeybindings] = useState<KeybindingsSnapshot | null>(null)
   const [connectionStatus, setConnectionStatus] = useState<SocketStatus>("connecting")
@@ -149,6 +243,49 @@ export function useKannaState(activeChatId: string | null): KannaState {
   }, [socket])
 
   useEffect(() => {
+    return socket.subscribe<UpdateSnapshot>({ type: "update" }, (snapshot) => {
+      setUpdateSnapshot(snapshot)
+      setCommandError(null)
+    })
+  }, [socket])
+
+  useEffect(() => {
+    if (connectionStatus !== "connected") return
+    void socket.command<UpdateSnapshot>({ type: "update.check", force: true }).catch((error) => {
+      setCommandError(error instanceof Error ? error.message : String(error))
+    })
+  }, [connectionStatus, socket])
+
+  useEffect(() => {
+    const phase = getUiUpdateRestartPhase()
+    const reconnectAction = getUiUpdateRestartReconnectAction(phase, connectionStatus)
+    if (reconnectAction === "awaiting_reconnect") {
+      setUiUpdateRestartPhase("awaiting_reconnect")
+      return
+    }
+
+    if (reconnectAction === "navigate_changelog") {
+      clearUiUpdateRestartPhase()
+      navigate("/settings/changelog", { replace: true })
+    }
+  }, [connectionStatus, navigate])
+
+  useEffect(() => {
+    function handleWindowFocus() {
+      if (!updateSnapshot?.lastCheckedAt) return
+      if (Date.now() - updateSnapshot.lastCheckedAt <= 60 * 60 * 1000) return
+      void socket.command<UpdateSnapshot>({ type: "update.check" }).catch((error) => {
+        setCommandError(error instanceof Error ? error.message : String(error))
+      })
+    }
+
+    window.addEventListener("focus", handleWindowFocus)
+    return () => {
+      window.removeEventListener("focus", handleWindowFocus)
+    }
+  }, [socket, updateSnapshot?.lastCheckedAt])
+
+  useEffect(() => {
     return socket.subscribe<KeybindingsSnapshot>({ type: "keybindings" }, (snapshot) => {
       setKeybindings(snapshot)
       setCommandError(null)
@@ -157,13 +294,22 @@ export function useKannaState(activeChatId: string | null): KannaState {
 
   useEffect(() => {
     if (!activeChatId) {
+      logKannaState("clearing chat snapshot for non-chat route")
       setChatSnapshot(null)
       setChatReady(true)
       return
     }
 
+    logKannaState("subscribing to chat", { activeChatId })
+    setChatSnapshot(null)
     setChatReady(false)
     return socket.subscribe<ChatSnapshot | null>({ type: "chat", chatId: activeChatId }, (snapshot) => {
+      logKannaState("chat snapshot received", {
+        activeChatId,
+        snapshotChatId: snapshot?.runtime.chatId ?? null,
+        snapshotProvider: snapshot?.runtime.provider ?? null,
+        snapshotStatus: snapshot?.runtime.status ?? null,
+      })
       setChatSnapshot(snapshot)
       setChatReady(true)
       setCommandError(null)
@@ -214,10 +360,24 @@ export function useKannaState(activeChatId: string | null): KannaState {
     return () => observer.disconnect()
   }, [])
 
-  const messages = useMemo(() => processTranscriptMessages(chatSnapshot?.messages ?? []), [chatSnapshot?.messages])
+  const activeChatSnapshot = useMemo(
+    () => getActiveChatSnapshot(chatSnapshot, activeChatId),
+    [activeChatId, chatSnapshot]
+  )
+  useEffect(() => {
+    logKannaState("active snapshot resolved", {
+      routeChatId: activeChatId,
+      rawSnapshotChatId: chatSnapshot?.runtime.chatId ?? null,
+      rawSnapshotProvider: chatSnapshot?.runtime.provider ?? null,
+      activeSnapshotChatId: activeChatSnapshot?.runtime.chatId ?? null,
+      activeSnapshotProvider: activeChatSnapshot?.runtime.provider ?? null,
+      pendingChatId,
+    })
+  }, [activeChatId, activeChatSnapshot, chatSnapshot, pendingChatId])
+  const messages = useMemo(() => processTranscriptMessages(activeChatSnapshot?.messages ?? []), [activeChatSnapshot?.messages])
   const latestToolIds = useMemo(() => getLatestToolIds(messages), [messages])
-  const runtime = chatSnapshot?.runtime ?? null
-  const availableProviders = chatSnapshot?.availableProviders ?? PROVIDERS
+  const runtime = activeChatSnapshot?.runtime ?? null
+  const availableProviders = activeChatSnapshot?.availableProviders ?? PROVIDERS
   const isProcessing = isProcessingStatus(runtime?.status)
   const canCancel = canCancelStatus(runtime?.status)
   const transcriptPaddingBottom = FIXED_TRANSCRIPT_PADDING_BOTTOM
@@ -256,53 +416,101 @@ export function useKannaState(activeChatId: string | null): KannaState {
     element.scrollTo({ top: element.scrollHeight, behavior: "smooth" })
   }
 
-  async function handleCreateChat(projectId: string) {
+  async function createChatForProject(projectId: string) {
+    useChatPreferencesStore.getState().initializeComposerForNewChat()
+    const result = await socket.command<{ chatId: string }>({ type: "chat.create", projectId })
+    setSelectedProjectId(projectId)
+    setPendingChatId(result.chatId)
+    navigate(`/chat/${result.chatId}`)
+    setSidebarOpen(false)
+    setCommandError(null)
+  }
+
+  async function resolveProjectIdForStartChat(intent: StartChatIntent): Promise<{ projectId: string; localPath?: string }> {
+    if (intent.kind === "project_id") {
+      return { projectId: intent.projectId }
+    }
+
+    if (intent.kind === "local_path") {
+      const result = await socket.command<{ projectId: string }>({ type: "project.open", localPath: intent.localPath })
+      return { projectId: result.projectId, localPath: intent.localPath }
+    }
+
+    const result = await socket.command<{ projectId: string }>(
+      intent.project.mode === "new"
+        ? { type: "project.create", localPath: intent.project.localPath, title: intent.project.title }
+        : { type: "project.open", localPath: intent.project.localPath }
+    )
+    return { projectId: result.projectId, localPath: intent.project.localPath }
+  }
+
+  async function startChatFromIntent(intent: StartChatIntent) {
     try {
-      const result = await socket.command<{ chatId: string }>({ type: "chat.create", projectId })
-      setSelectedProjectId(projectId)
-      setPendingChatId(result.chatId)
-      navigate(`/chat/${result.chatId}`)
-      setSidebarOpen(false)
+      const localPath = intent.kind === "project_id"
+        ? null
+        : intent.kind === "local_path"
+          ? intent.localPath
+          : intent.project.localPath
+      if (localPath) {
+        setStartingLocalPath(localPath)
+      }
+
+      const { projectId } = await resolveProjectIdForStartChat(intent)
+      await createChatForProject(projectId)
     } catch (error) {
       setCommandError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setStartingLocalPath(null)
     }
+  }
+
+  async function handleCreateChat(projectId: string) {
+    await startChatFromIntent({ kind: "project_id", projectId })
   }
 
   async function handleOpenLocalProject(localPath: string) {
+    await startChatFromIntent({ kind: "local_path", localPath })
+  }
+
+  async function handleCreateProject(project: ProjectRequest) {
+    await startChatFromIntent({ kind: "project_request", project })
+  }
+
+  async function handleCheckForUpdates(options?: { force?: boolean }) {
     try {
-      setStartingLocalPath(localPath)
-      const result = await socket.command<{ projectId: string }>({ type: "project.open", localPath })
-      setSelectedProjectId(result.projectId)
-      const chat = await socket.command<{ chatId: string }>({ type: "chat.create", projectId: result.projectId })
-      setPendingChatId(chat.chatId)
-      navigate(`/chat/${chat.chatId}`)
-      setSidebarOpen(false)
+      await socket.command<UpdateSnapshot>({ type: "update.check", force: options?.force })
       setCommandError(null)
     } catch (error) {
       setCommandError(error instanceof Error ? error.message : String(error))
-    } finally {
-      setStartingLocalPath(null)
     }
   }
 
-  async function handleCreateProject(project: { mode: "new" | "existing"; localPath: string; title: string }) {
+  async function handleInstallUpdate() {
     try {
-      setStartingLocalPath(project.localPath)
-      const result = await socket.command<{ projectId: string }>(
-        project.mode === "new"
-          ? { type: "project.create", localPath: project.localPath, title: project.title }
-          : { type: "project.open", localPath: project.localPath }
-      )
-      setSelectedProjectId(result.projectId)
-      const chat = await socket.command<{ chatId: string }>({ type: "chat.create", projectId: result.projectId })
-      setPendingChatId(chat.chatId)
-      navigate(`/chat/${chat.chatId}`)
-      setSidebarOpen(false)
+      const result = await socket.command<UpdateInstallResult>({ type: "update.install" })
+      if (!result.ok) {
+        clearUiUpdateRestartPhase()
+        setCommandError(null)
+        await dialog.alert({
+          title: result.userTitle ?? "Update failed",
+          description: result.userMessage ?? "Kanna could not install the update. Try again later.",
+          closeLabel: "OK",
+        })
+        return
+      }
+
+      if (result.ok && result.action === "reload") {
+        window.location.reload()
+        return
+      }
+
+      if (result.ok && result.action === "restart") {
+        setUiUpdateRestartPhase("awaiting_disconnect")
+      }
       setCommandError(null)
     } catch (error) {
+      clearUiUpdateRestartPhase()
       setCommandError(error instanceof Error ? error.message : String(error))
-    } finally {
-      setStartingLocalPath(null)
     }
   }
 
@@ -458,15 +666,13 @@ export function useKannaState(activeChatId: string | null): KannaState {
   }
 
   function handleCompose() {
-    const projectId = selectedProjectId ?? sidebarData.projectGroups[0]?.groupKey
-    if (projectId) {
-      void handleCreateChat(projectId)
-      return
-    }
-
-    const firstLocalProject = localProjects?.projects[0]?.localPath
-    if (firstLocalProject) {
-      void handleOpenLocalProject(firstLocalProject)
+    const intent = resolveComposeIntent({
+      selectedProjectId,
+      sidebarProjectId: sidebarData.projectGroups[0]?.groupKey,
+      fallbackLocalProjectPath,
+    })
+    if (intent) {
+      void startChatFromIntent(intent)
       return
     }
 
@@ -494,7 +700,7 @@ export function useKannaState(activeChatId: string | null): KannaState {
   async function handleExitPlanMode(toolUseId: string, confirmed: boolean, clearContext?: boolean, message?: string) {
     if (!activeChatId) return
     if (confirmed) {
-      useChatPreferencesStore.getState().setPlanMode(false)
+      useChatPreferencesStore.getState().setComposerPlanMode(false)
     }
     try {
       await socket.command({
@@ -517,6 +723,7 @@ export function useKannaState(activeChatId: string | null): KannaState {
     activeChatId,
     sidebarData,
     localProjects,
+    updateSnapshot,
     chatSnapshot,
     keybindings,
     connectionStatus,
@@ -548,6 +755,8 @@ export function useKannaState(activeChatId: string | null): KannaState {
     handleCreateChat,
     handleOpenLocalProject,
     handleCreateProject,
+    handleCheckForUpdates,
+    handleInstallUpdate,
     handleSend,
     handleCancel,
     handleDeleteChat,

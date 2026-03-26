@@ -7,18 +7,32 @@ import {
   Loader2,
   Monitor,
   Moon,
+  MessageSquareQuote,
+  RefreshCw,
   Settings2,
   Sun,
+  CloudDownload,
 } from "lucide-react"
 import Markdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { useNavigate, useOutletContext, useParams } from "react-router-dom"
 import { getKeybindingsFilePathDisplay, SDK_CLIENT_APP } from "../../shared/branding"
-import { DEFAULT_KEYBINDINGS, type KeybindingAction } from "../../shared/types"
+import { DEFAULT_KEYBINDINGS, PROVIDERS, type AgentProvider, type KeybindingAction, type UpdateSnapshot } from "../../shared/types"
 import { markdownComponents } from "../components/messages/shared"
+import { ChatPreferenceControls } from "../components/chat-ui/ChatPreferenceControls"
 import { buttonVariants } from "../components/ui/button"
+import { Input } from "../components/ui/input"
+import { SettingsHeaderButton } from "../components/ui/settings-header-button"
 import type { EditorPreset } from "../../shared/protocol"
 import { SegmentedControl } from "../components/ui/segmented-control"
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../components/ui/select"
 import { useTheme, type ThemePreference } from "../hooks/useTheme"
 import { KEYBINDING_ACTION_LABELS, formatKeybindingInput, getResolvedKeybindings, parseKeybindingInput } from "../lib/keybindings"
 import { cn } from "../lib/utils"
@@ -31,6 +45,7 @@ import {
   MIN_TERMINAL_SCROLLBACK,
   useTerminalPreferencesStore,
 } from "../stores/terminalPreferencesStore"
+import { useChatPreferencesStore } from "../stores/chatPreferencesStore"
 import type { KannaState } from "./useKannaState"
 
 const sidebarItems = [
@@ -39,6 +54,12 @@ const sidebarItems = [
     label: "General",
     icon: Settings2,
     subtitle: "Manage appearance, editor behavior, and embedded terminal defaults.",
+  },
+  {
+    id: "providers",
+    label: "Providers",
+    icon: MessageSquareQuote,
+    subtitle: "Manage the default chat provider and saved model defaults for Claude Code and Codex.",
   },
   {
     id: "keybindings",
@@ -105,6 +126,28 @@ export function getKeybindingsSubtitle(filePathDisplay: string) {
   return `Edit global app shortcuts stored in ${filePathDisplay}.`
 }
 
+export function getGeneralHeaderAction(updateSnapshot: UpdateSnapshot | null) {
+  const isChecking = updateSnapshot?.status === "checking"
+  const isUpdating = updateSnapshot?.status === "updating" || updateSnapshot?.status === "restart_pending"
+
+  if (updateSnapshot?.updateAvailable) {
+    return {
+      disabled: isUpdating,
+      kind: "update" as const,
+      label: "Update",
+      variant: "default" as const,
+    }
+  }
+
+  return {
+    disabled: isChecking || isUpdating,
+    kind: "check" as const,
+    label: "Check for updates",
+    spinning: isChecking,
+    variant: "outline" as const,
+  }
+}
+
 export function resetSettingsPageChangelogCache() {
   changelogCache = null
 }
@@ -137,6 +180,17 @@ export function setCachedChangelog(releases: GithubRelease[]) {
     releases,
     expiresAt: Date.now() + CHANGELOG_CACHE_TTL_MS,
   }
+}
+
+export async function loadChangelog(options?: { force?: boolean; fetchImpl?: FetchReleases }) {
+  const cached = options?.force ? null : getCachedChangelog()
+  if (cached) {
+    return cached
+  }
+
+  const releases = await fetchGithubReleases(options?.fetchImpl)
+  setCachedChangelog(releases)
+  return releases
 }
 
 export function formatPublishedDate(value: string | null) {
@@ -331,6 +385,12 @@ export function SettingsPage() {
   const setEditorPreset = useTerminalPreferencesStore((store) => store.setEditorPreset)
   const setEditorCommandTemplate = useTerminalPreferencesStore((store) => store.setEditorCommandTemplate)
   const keybindings = state.keybindings
+  const defaultProvider = useChatPreferencesStore((store) => store.defaultProvider)
+  const providerDefaults = useChatPreferencesStore((store) => store.providerDefaults)
+  const setDefaultProvider = useChatPreferencesStore((store) => store.setDefaultProvider)
+  const setProviderDefaultModel = useChatPreferencesStore((store) => store.setProviderDefaultModel)
+  const setProviderDefaultModelOptions = useChatPreferencesStore((store) => store.setProviderDefaultModelOptions)
+  const setProviderDefaultPlanMode = useChatPreferencesStore((store) => store.setProviderDefaultPlanMode)
   const resolvedKeybindings = useMemo(() => getResolvedKeybindings(keybindings), [keybindings])
   const keybindingsFilePathDisplay = resolvedKeybindings.filePathDisplay || getKeybindingsFilePathDisplay()
   const [scrollbackDraft, setScrollbackDraft] = useState(String(scrollbackLines))
@@ -338,6 +398,21 @@ export function SettingsPage() {
   const [editorCommandDraft, setEditorCommandDraft] = useState(editorCommandTemplate)
   const [keybindingDrafts, setKeybindingDrafts] = useState<Record<string, string>>({})
   const [keybindingsError, setKeybindingsError] = useState<string | null>(null)
+  const updateSnapshot = state.updateSnapshot
+  const generalHeaderAction = getGeneralHeaderAction(updateSnapshot)
+  const updateStatusLabel = updateSnapshot?.status === "checking"
+    ? "Checking for updates…"
+    : updateSnapshot?.status === "updating"
+      ? "Installing update…"
+      : updateSnapshot?.status === "restart_pending"
+        ? "Restarting Kanna…"
+        : updateSnapshot?.status === "available"
+          ? `Update available${updateSnapshot.latestVersion ? `: ${updateSnapshot.latestVersion}` : ""}`
+          : updateSnapshot?.status === "up_to_date"
+            ? "Up to date"
+            : updateSnapshot?.status === "error"
+              ? "Update check failed"
+              : "Not checked yet"
 
   useEffect(() => {
     setScrollbackDraft(String(scrollbackLines))
@@ -369,22 +444,13 @@ export function SettingsPage() {
   useEffect(() => {
     if (selectedPage !== "changelog" || isConnecting) return
 
-    const cachedReleases = getCachedChangelog()
-    if (cachedReleases) {
-      setReleases(cachedReleases)
-      setChangelogError(null)
-      setChangelogStatus("success")
-      return
-    }
-
     let cancelled = false
     setChangelogStatus("loading")
     setChangelogError(null)
 
-    void fetchGithubReleases()
+    void loadChangelog()
       .then((nextReleases) => {
         if (cancelled) return
-        setCachedChangelog(nextReleases)
         setReleases(nextReleases)
         setChangelogStatus("success")
       })
@@ -468,9 +534,8 @@ export function SettingsPage() {
     setChangelogStatus("loading")
     setChangelogError(null)
 
-    void fetchGithubReleases()
+    void loadChangelog({ force: true })
       .then((nextReleases) => {
-        setCachedChangelog(nextReleases)
         setReleases(nextReleases)
         setChangelogStatus("success")
       })
@@ -531,24 +596,41 @@ export function SettingsPage() {
             ) : (
               <div className="mx-auto max-w-4xl">
                 <div className="pb-6">
-                  <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center justify-between gap-4 min-h-[34px]">
                     <div className="text-lg font-semibold tracking-[-0.2px] text-foreground">
                       {selectedSection.label}
                     </div>
                     {selectedPage === "keybindings" ? (
-                      <button
-                        type="button"
+                      <SettingsHeaderButton
                         onClick={() => {
                           void state.handleOpenExternalPath("open_editor", keybindingsFilePathDisplay)
                         }}
-                        className={cn(
-                          buttonVariants({ variant: "outline", size: "sm" }),
-                          "gap-2 rounded-lg"
-                        )}
+                        icon={<Code className="h-4 w-4" />}
                       >
-                        <Code className="h-4 w-4" />
-                        <span>Open in {state.editorLabel}</span>
-                      </button>
+                        Open in {state.editorLabel}
+                      </SettingsHeaderButton>
+                    ) : null}
+                    {selectedPage === "general" ? (
+                      <div className="flex items-center gap-2">
+                        <SettingsHeaderButton
+                          variant={generalHeaderAction.variant}
+                          onClick={() => {
+                            if (generalHeaderAction.kind === "update") {
+                              void state.handleInstallUpdate()
+                              return
+                            }
+                            void state.handleCheckForUpdates({ force: true })
+                          }}
+                          disabled={generalHeaderAction.disabled}
+                          icon={generalHeaderAction.kind === "check"
+                            ? <RefreshCw className={cn("size-3.5", generalHeaderAction.spinning && "animate-spin")} />
+                            : generalHeaderAction.kind === "update"
+                            ? <CloudDownload className={cn("size-3.5")} />
+                            : undefined}
+                        >
+                          {generalHeaderAction.label}
+                        </SettingsHeaderButton>
+                      </div>
                     ) : null}
                   </div>
                   <div className="mt-1 text-sm text-muted-foreground">
@@ -560,9 +642,36 @@ export function SettingsPage() {
                   <>
                     <div className="border-b border-border">
                       <SettingsRow
+                        title="Application Update"
+                        description={(
+                          <>
+                            <span>{updateStatusLabel}.</span>
+                            {updateSnapshot?.lastCheckedAt ? (
+                              <span> Last checked {new Intl.DateTimeFormat(undefined, {
+                                month: "short",
+                                day: "numeric",
+                                hour: "numeric",
+                                minute: "2-digit",
+                              }).format(updateSnapshot.lastCheckedAt)}.</span>
+                            ) : null}
+                            {updateSnapshot?.error ? (
+                              <span> {updateSnapshot.error}</span>
+                            ) : null}
+                          </>
+                        )}
+                        bordered={false}
+                      >
+                        <div className="text-right text-sm text-foreground">
+                          <div>Current: {updateSnapshot?.currentVersion ?? appVersion}</div>
+                          <div className="text-xs text-muted-foreground">
+                            Latest: {updateSnapshot?.latestVersion ?? "Unknown"}
+                          </div>
+                        </div>
+                      </SettingsRow>
+
+                      <SettingsRow
                         title="Theme"
                         description="Choose between light, dark, or system appearance"
-                        bordered={false}
                       >
                         <SegmentedControl
                           value={theme}
@@ -577,17 +686,23 @@ export function SettingsPage() {
                         description="Used by the navbar code button and local file links in chat"
                         alignStart
                       >
-                        <select
+                        <Select
                           value={editorPreset}
-                          onChange={(event) => setEditorPreset(event.target.value as EditorPreset)}
-                          className="min-w-[180px] rounded-lg border border-border bg-background px-3 py-2 pr-12 text-sm text-foreground outline-none"
+                          onValueChange={(value) => setEditorPreset(value as EditorPreset)}
                         >
-                          {editorOptions.map((option) => (
-                            <option key={option.value} value={option.value}>
-                              {option.label}
-                            </option>
-                          ))}
-                        </select>
+                          <SelectTrigger className="min-w-[180px]">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectGroup>
+                              {editorOptions.map((option) => (
+                                <SelectItem key={option.value} value={option.value}>
+                                  {option.label}
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
                       </SettingsRow>
 
                       {editorPreset === "custom" ? (
@@ -600,13 +715,13 @@ export function SettingsPage() {
                               </div>
                             </div>
                             <div className="flex min-w-0 max-w-[420px] flex-1 flex-col items-stretch gap-2">
-                              <input
+                              <Input
                                 type="text"
                                 value={editorCommandDraft}
                                 onChange={(event) => setEditorCommandDraft(event.target.value)}
                                 onBlur={commitEditorCommand}
                                 onKeyDown={(event) => handleTextInputKeyDown(event, commitEditorCommand)}
-                                className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-sm text-foreground outline-none"
+                                className="font-mono"
                               />
                               <div className="text-xs text-muted-foreground">
                                 Preview: <span className="font-mono">{customEditorPreview}</span>
@@ -621,7 +736,7 @@ export function SettingsPage() {
                         description="Lines retained for embedded terminal history"
                       >
                         <div className="flex min-w-0 flex-col items-end gap-2">
-                          <input
+                          <Input
                             type="number"
                             min={MIN_TERMINAL_SCROLLBACK}
                             max={MAX_TERMINAL_SCROLLBACK}
@@ -630,7 +745,7 @@ export function SettingsPage() {
                             onChange={(event) => setScrollbackDraft(event.target.value)}
                             onBlur={commitScrollback}
                             onKeyDown={(event) => handleNumberInputKeyDown(event, commitScrollback)}
-                            className="hide-number-steppers w-28 rounded-lg border border-border bg-background px-3 py-2 text-right font-mono text-sm text-foreground outline-none"
+                            className="hide-number-steppers w-28 text-right font-mono"
                           />
                           <div className="text-right text-xs text-muted-foreground">
                             {MIN_TERMINAL_SCROLLBACK}-{MAX_TERMINAL_SCROLLBACK} lines
@@ -644,7 +759,7 @@ export function SettingsPage() {
                         description="Minimum width for each terminal pane"
                       >
                         <div className="flex min-w-0 flex-col items-end gap-2">
-                          <input
+                          <Input
                             type="number"
                             min={MIN_TERMINAL_MIN_COLUMN_WIDTH}
                             max={MAX_TERMINAL_MIN_COLUMN_WIDTH}
@@ -653,7 +768,7 @@ export function SettingsPage() {
                             onChange={(event) => setMinColumnWidthDraft(event.target.value)}
                             onBlur={commitMinColumnWidth}
                             onKeyDown={(event) => handleNumberInputKeyDown(event, commitMinColumnWidth)}
-                            className="hide-number-steppers w-28 rounded-lg border border-border bg-background px-3 py-2 text-right font-mono text-sm text-foreground outline-none"
+                            className="hide-number-steppers w-28 text-right font-mono"
                           />
                           <div className="text-right text-xs text-muted-foreground">
                             {MIN_TERMINAL_MIN_COLUMN_WIDTH}-{MAX_TERMINAL_MIN_COLUMN_WIDTH} px
@@ -663,6 +778,95 @@ export function SettingsPage() {
                       </SettingsRow>
                     </div>
                   </>
+                ) : selectedPage === "providers" ? (
+                  <div className="border-b border-border">
+                    <SettingsRow
+                      title="Default Provider"
+                      description="The default harness used for new chats before a provider is locked by an existing session."
+                      bordered={false}
+                    >
+                      <Select
+                        value={defaultProvider}
+                        onValueChange={(value) => setDefaultProvider(value as "last_used" | AgentProvider)}
+                      >
+                        <SelectTrigger className="min-w-[180px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectGroup>
+                            <SelectItem value="last_used">
+                              Last Used
+                            </SelectItem>
+                            {PROVIDERS.map((provider) => (
+                              <SelectItem key={provider.id} value={provider.id}>
+                                {provider.label}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                    </SettingsRow>
+
+                    <SettingsRow
+                      title="Claude Code Defaults"
+                      description="Saved defaults when using Claude Code."
+                      alignStart
+                    >
+                      <div className="max-w-[420px]">
+                        <ChatPreferenceControls
+                          availableProviders={PROVIDERS}
+                          selectedProvider="claude"
+                          showProviderPicker={false}
+                          providerLocked
+                          model={providerDefaults.claude.model}
+                          modelOptions={providerDefaults.claude.modelOptions}
+                          onModelChange={(_, model) => {
+                            setProviderDefaultModel("claude", model)
+                          }}
+                          onClaudeReasoningEffortChange={(reasoningEffort) => {
+                            setProviderDefaultModelOptions("claude", { reasoningEffort })
+                          }}
+                          onCodexReasoningEffortChange={() => {}}
+                          onCodexFastModeChange={() => {}}
+                          planMode={providerDefaults.claude.planMode}
+                          onPlanModeChange={(planMode) => setProviderDefaultPlanMode("claude", planMode)}
+                          includePlanMode
+                          className="justify-start flex-wrap"
+                        />
+                      </div>
+                    </SettingsRow>
+
+                    <SettingsRow
+                      title="Codex Defaults"
+                      description="Saved defaults when using Codex."
+                      alignStart
+                    >
+                      <div className="max-w-[420px]">
+                        <ChatPreferenceControls
+                          availableProviders={PROVIDERS}
+                          selectedProvider="codex"
+                          showProviderPicker={false}
+                          providerLocked
+                          model={providerDefaults.codex.model}
+                          modelOptions={providerDefaults.codex.modelOptions}
+                          onModelChange={(_, model) => {
+                            setProviderDefaultModel("codex", model)
+                          }}
+                          onClaudeReasoningEffortChange={() => {}}
+                          onCodexReasoningEffortChange={(reasoningEffort) => {
+                            setProviderDefaultModelOptions("codex", { reasoningEffort })
+                          }}
+                          onCodexFastModeChange={(fastMode) => {
+                            setProviderDefaultModelOptions("codex", { fastMode })
+                          }}
+                          planMode={providerDefaults.codex.planMode}
+                          onPlanModeChange={(planMode) => setProviderDefaultPlanMode("codex", planMode)}
+                          includePlanMode
+                          className="justify-start flex-wrap"
+                        />
+                      </div>
+                    </SettingsRow>
+                  </div>
                 ) : selectedPage === "keybindings" ? (
                   <div className="border-b border-border">
                     {keybindingsError ? (
@@ -684,6 +888,7 @@ export function SettingsPage() {
                         <SettingsRow
                           key={action}
                           title={KEYBINDING_ACTION_LABELS[action]}
+
                           description={(
                             <>
                               <span>Comma-separated shortcuts.</span>
@@ -704,10 +909,10 @@ export function SettingsPage() {
                             </>
                           )}
                           bordered={index !== 0}
-                          alignStart
+
                         >
                           <div className="flex min-w-0 max-w-[420px] flex-1 flex-col items-stretch gap-2">
-                            <input
+                            <Input
                               type="text"
                               value={currentValue}
                               onChange={(event) => {
@@ -720,7 +925,7 @@ export function SettingsPage() {
                               onKeyDown={(event) => handleTextInputKeyDown(event, () => {
                                 void commitKeybindings()
                               })}
-                              className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-sm text-foreground outline-none"
+                              className="font-mono"
                             />
                           </div>
                         </SettingsRow>
