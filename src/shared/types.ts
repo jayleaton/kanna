@@ -322,8 +322,27 @@ export interface SidebarProjectGroup {
   generalChats: SidebarChatRow[]
 }
 
+export type ProviderUsageAvailability = "available" | "unavailable" | "stale" | "login_required"
+
+export interface ProviderUsageEntry {
+  provider: AgentProvider
+  sessionLimitUsedPercent: number | null
+  rateLimitResetAt: number | null
+  rateLimitResetLabel?: string | null
+  weeklyLimitUsedPercent?: number | null
+  weeklyRateLimitResetAt?: number | null
+  weeklyRateLimitResetLabel?: string | null
+  statusDetail?: string | null
+  availability: ProviderUsageAvailability
+  updatedAt: number | null
+  warnings: ChatUsageWarning[]
+}
+
+export type ProviderUsageMap = Partial<Record<AgentProvider, ProviderUsageEntry>>
+
 export interface SidebarData {
   projectGroups: SidebarProjectGroup[]
+  providerUsage?: ProviderUsageMap
 }
 
 export interface LocalProjectSummary {

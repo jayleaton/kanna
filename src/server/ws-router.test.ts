@@ -79,6 +79,7 @@ function createFakeAgent() {
   return {
     getActiveStatuses: () => new Map(),
     getLiveUsage: () => null,
+    getProviderUsage: () => ({}),
     getChatPendingTool: () => null,
   }
 }
@@ -125,6 +126,182 @@ describe("ws-router", () => {
         v: PROTOCOL_VERSION,
         type: "ack",
         id: "ping-1",
+      },
+    ])
+  })
+
+  test("routes provider usage refresh commands", async () => {
+    const refreshedProviders: Array<string | undefined> = []
+    const router = createWsRouter({
+      store: {
+        state: createEmptyState(),
+        getChat: () => null,
+        getMessages: () => [],
+      } as never,
+      agent: {
+        ...createFakeAgent(),
+        getProviderUsage: () => ({
+          cursor: {
+            provider: "cursor",
+            sessionLimitUsedPercent: null,
+            rateLimitResetAt: null,
+            rateLimitResetLabel: null,
+            weeklyLimitUsedPercent: null,
+            weeklyRateLimitResetAt: null,
+            weeklyRateLimitResetLabel: null,
+            statusDetail: "session_refresh_failed",
+            availability: "login_required" as const,
+            updatedAt: null,
+            warnings: [],
+          },
+        }),
+      } as never,
+      terminals: {
+        getSnapshot: () => null,
+        onEvent: () => () => {},
+      } as never,
+      keybindings: {
+        getSnapshot: () => DEFAULT_KEYBINDINGS_SNAPSHOT,
+        onChange: () => () => {},
+      } as never,
+      git: new GitManager(),
+      refreshDiscovery: async () => [],
+      getDiscoveredProjects: () => [],
+      machineDisplayName: "Local Machine",
+      updateManager: null,
+      themeSettings: fakeThemeSettings,
+      providerUsagePollIntervalMs: 10_000,
+      refreshProviderUsage: async (provider) => {
+        refreshedProviders.push(provider)
+      },
+    })
+    const ws = new FakeWebSocket()
+    ws.data.subscriptions.set("sub-1", { type: "sidebar" })
+
+    await router.handleMessage(
+      ws as never,
+      JSON.stringify({
+        v: 1,
+        type: "command",
+        id: "provider-refresh-1",
+        command: { type: "provider.refreshUsage", provider: "cursor" },
+      })
+    )
+
+    expect(refreshedProviders).toEqual(["cursor"])
+    expect(ws.sent.at(-1)).toEqual({
+      v: PROTOCOL_VERSION,
+      type: "ack",
+      id: "provider-refresh-1",
+    })
+  })
+
+  test("routes provider usage curl imports", async () => {
+    const originalFetch = globalThis.fetch
+    const router = createWsRouter({
+      store: {
+        state: createEmptyState(),
+        dataDir: makeTempDir(),
+        getChat: () => null,
+        getMessages: () => [],
+      } as never,
+      agent: createFakeAgent() as never,
+      terminals: {
+        getSnapshot: () => null,
+        onEvent: () => () => {},
+      } as never,
+      keybindings: {
+        getSnapshot: () => DEFAULT_KEYBINDINGS_SNAPSHOT,
+        onChange: () => () => {},
+      } as never,
+      git: new GitManager(),
+      refreshDiscovery: async () => [],
+      getDiscoveredProjects: () => [],
+      machineDisplayName: "Local Machine",
+      updateManager: null,
+      themeSettings: fakeThemeSettings,
+      providerUsagePollIntervalMs: 10_000,
+    })
+    const ws = new FakeWebSocket()
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      usage: {
+        used_percent: 22,
+      },
+    }), { status: 200 })) as unknown as typeof fetch
+
+    try {
+      router.handleMessage(
+        ws as never,
+        JSON.stringify({
+          v: 1,
+          type: "command",
+          id: "provider-import-1",
+          command: {
+            type: "provider.importUsageCurl",
+            provider: "cursor",
+            curlCommand: "curl 'https://cursor.com/api/dashboard/get-current-period-usage' -b 'WorkosCursorSessionToken=session_abc'",
+          },
+        })
+      )
+      await Bun.sleep(0)
+
+      expect(ws.sent.at(-1)).toMatchObject({
+        v: PROTOCOL_VERSION,
+        type: "ack",
+        id: "provider-import-1",
+      })
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  test("acks system.openUrl commands", async () => {
+    const openedUrls: string[] = []
+    const router = createWsRouter({
+      store: {
+        state: createEmptyState(),
+        getChat: () => null,
+        getMessages: () => [],
+      } as never,
+      agent: createFakeAgent() as never,
+      terminals: {
+        getSnapshot: () => null,
+        onEvent: () => () => {},
+      } as never,
+      keybindings: {
+        getSnapshot: () => DEFAULT_KEYBINDINGS_SNAPSHOT,
+        onChange: () => () => {},
+      } as never,
+      git: new GitManager(),
+      refreshDiscovery: async () => [],
+      getDiscoveredProjects: () => [],
+      machineDisplayName: "Local Machine",
+      updateManager: null,
+      themeSettings: fakeThemeSettings,
+      providerUsagePollIntervalMs: 10_000,
+      openUrlCommand: async (command) => {
+        openedUrls.push(command.url)
+      },
+    })
+    const ws = new FakeWebSocket()
+
+    await router.handleMessage(
+      ws as never,
+      JSON.stringify({
+        v: 1,
+        type: "command",
+        id: "open-url-1",
+        command: { type: "system.openUrl", url: "https://cursor.com/dashboard/spending" },
+      })
+    )
+
+    expect(openedUrls).toEqual(["https://cursor.com/dashboard/spending"])
+    expect(ws.sent).toEqual([
+      {
+        v: PROTOCOL_VERSION,
+        type: "ack",
+        id: "open-url-1",
       },
     ])
   })
@@ -238,6 +415,133 @@ describe("ws-router", () => {
       type: "ack",
       id: "chat-sub-1",
     })
+  })
+
+  test("polls sidebar snapshots without chat activity", async () => {
+    const router = createWsRouter({
+      store: {
+        state: createEmptyState(),
+        getChat: () => null,
+        getMessages: () => [],
+      } as never,
+      agent: createFakeAgent() as never,
+      terminals: {
+        getSnapshot: () => null,
+        onEvent: () => () => {},
+      } as never,
+      keybindings: {
+        getSnapshot: () => DEFAULT_KEYBINDINGS_SNAPSHOT,
+        onChange: () => () => {},
+      } as never,
+      git: new GitManager(),
+      refreshDiscovery: async () => [],
+      getDiscoveredProjects: () => [],
+      machineDisplayName: "Local Machine",
+      updateManager: null,
+      themeSettings: fakeThemeSettings,
+      providerUsagePollIntervalMs: 10,
+      refreshProviderUsage: async () => {},
+    })
+    const ws = new FakeWebSocket()
+    router.handleOpen(ws as never)
+
+    ws.data.subscriptions.set("sub-sidebar", { type: "sidebar" })
+
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 25))
+      expect(ws.sent.length).toBeGreaterThan(0)
+      expect(ws.sent.at(-1)).toEqual({
+        v: PROTOCOL_VERSION,
+        type: "snapshot",
+        id: "sub-sidebar",
+        snapshot: {
+          type: "sidebar",
+          data: {
+            projectGroups: [],
+            providerUsage: {},
+          },
+        },
+      })
+    } finally {
+      router.dispose()
+    }
+  })
+
+  test("does not poll non-sidebar subscriptions", async () => {
+    const router = createWsRouter({
+      store: {
+        state: createEmptyState(),
+        getChat: () => null,
+        getMessages: () => [],
+      } as never,
+      agent: createFakeAgent() as never,
+      terminals: {
+        getSnapshot: () => null,
+        onEvent: () => () => {},
+      } as never,
+      keybindings: {
+        getSnapshot: () => DEFAULT_KEYBINDINGS_SNAPSHOT,
+        onChange: () => () => {},
+      } as never,
+      git: new GitManager(),
+      refreshDiscovery: async () => [],
+      getDiscoveredProjects: () => [],
+      machineDisplayName: "Local Machine",
+      updateManager: null,
+      themeSettings: fakeThemeSettings,
+      providerUsagePollIntervalMs: 10,
+      refreshProviderUsage: async () => {},
+    })
+    const ws = new FakeWebSocket()
+    router.handleOpen(ws as never)
+
+    ws.data.subscriptions.set("sub-update", { type: "update" })
+
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 25))
+      expect(ws.sent).toHaveLength(0)
+    } finally {
+      router.dispose()
+    }
+  })
+
+  test("stops provider usage polling on dispose", async () => {
+    const router = createWsRouter({
+      store: {
+        state: createEmptyState(),
+        getChat: () => null,
+        getMessages: () => [],
+      } as never,
+      agent: createFakeAgent() as never,
+      terminals: {
+        getSnapshot: () => null,
+        onEvent: () => () => {},
+      } as never,
+      keybindings: {
+        getSnapshot: () => DEFAULT_KEYBINDINGS_SNAPSHOT,
+        onChange: () => () => {},
+      } as never,
+      git: new GitManager(),
+      refreshDiscovery: async () => [],
+      getDiscoveredProjects: () => [],
+      machineDisplayName: "Local Machine",
+      updateManager: null,
+      themeSettings: fakeThemeSettings,
+      providerUsagePollIntervalMs: 10,
+      refreshProviderUsage: async () => {},
+    })
+    const ws = new FakeWebSocket()
+    router.handleOpen(ws as never)
+
+    ws.data.subscriptions.set("sub-sidebar", { type: "sidebar" })
+
+    await new Promise((resolve) => setTimeout(resolve, 25))
+    const countBeforeDispose = ws.sent.length
+    router.dispose()
+    await new Promise((resolve) => setTimeout(resolve, 25))
+
+    expect(countBeforeDispose).toBeGreaterThan(0)
+    expect(ws.sent).toHaveLength(countBeforeDispose)
   })
 
   test("hides a discovered project without requiring a saved project record", async () => {

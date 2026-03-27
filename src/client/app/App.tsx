@@ -2,6 +2,7 @@ import { useEffect, useMemo } from "react"
 import { Navigate, Outlet, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom"
 import { AppDialogProvider } from "../components/ui/app-dialog"
 import { CreateFeatureModal } from "../components/CreateFeatureModal"
+import { CursorCurlImportModal } from "../components/CursorCurlImportModal"
 import { TooltipProvider } from "../components/ui/tooltip"
 import { SDK_CLIENT_APP } from "../../shared/branding"
 import { KannaSidebar } from "./KannaSidebar"
@@ -126,6 +127,12 @@ function KannaLayout() {
         onRemoveProject={(projectId) => {
           void state.handleRemoveProject(projectId)
         }}
+        onRefreshProviderUsage={(provider) => {
+          void state.handleRefreshProviderUsage(provider)
+        }}
+        onOpenProviderLogin={(provider) => {
+          void state.handleOpenProviderLogin(provider)
+        }}
         startingLocalPath={state.startingLocalPath}
         updateSnapshot={state.updateSnapshot}
         onInstallUpdate={() => {
@@ -138,6 +145,13 @@ function KannaLayout() {
           if (!open) state.handleCloseCreateFeatureModal()
         }}
         onConfirm={(draft) => state.handleConfirmCreateFeature(draft)}
+      />
+      <CursorCurlImportModal
+        open={state.cursorCurlImportOpen}
+        onOpenChange={(open) => {
+          if (!open) state.handleCloseCursorCurlImport()
+        }}
+        onSubmit={(curlCommand) => state.handleSubmitCursorCurlImport(curlCommand)}
       />
       <Outlet context={state} />
     </div>

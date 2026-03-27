@@ -1,15 +1,22 @@
 import { describe, expect, test } from "bun:test"
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import type { TranscriptEntry } from "../shared/types"
 import {
   applyThreadEstimate,
+  deriveProviderUsage,
   estimateCurrentThreadTokens,
   mergeUsageSnapshots,
+  importCursorSessionFromCurl,
+  parseCursorUsagePayload,
+  parseClaudeUsageScreen,
+  refreshClaudeRateLimitFromCli,
+  refreshCursorUsage,
   reconstructClaudeUsage,
   reconstructCodexUsageFromFile,
 } from "./usage"
+import { EventStore } from "./event-store"
 
 function transcriptEntry(overrides: Partial<TranscriptEntry> & Pick<TranscriptEntry, "kind">): TranscriptEntry {
   return {
@@ -171,7 +178,13 @@ describe("usage reconstruction", () => {
           rate_limits: {
             primary: {
               used_percent: 82,
+              window_minutes: 300,
               resets_at: 1773838096,
+            },
+            secondary: {
+              used_percent: 91,
+              window_minutes: 10080,
+              resets_at: 1774000000,
             },
           },
         },
@@ -184,8 +197,234 @@ describe("usage reconstruction", () => {
       expect(snapshot?.lastTurnTokens).toBe(4200)
       expect(snapshot?.contextWindowTokens).toBe(258400)
       expect(snapshot?.sessionLimitUsedPercent).toBe(82)
+      expect((snapshot as { weeklyLimitUsedPercent?: number | null })?.weeklyLimitUsedPercent).toBe(91)
+      expect((snapshot as { weeklyRateLimitResetAt?: number | null })?.weeklyRateLimitResetAt).toBe(1774000000 * 1000)
       expect(snapshot?.warnings).toContain("rate_warning")
     } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test("parses Claude /usage screen output", () => {
+    const parsed = parseClaudeUsageScreen(`
+Current session
+████████████████████████████████████████████▌      89% used
+Resets 1pm (Asia/Bangkok)
+
+Current week (all models)
+██████████████████████████████████████████████     92% used
+Resets Mar 30, 8am (Asia/Bangkok)
+`)
+
+    expect(parsed).toEqual({
+      sessionLimitUsedPercent: 89,
+      rateLimitResetLabel: "1pm (Asia/Bangkok)",
+      weeklyLimitUsedPercent: 92,
+      weeklyRateLimitResetLabel: "Mar 30, 8am (Asia/Bangkok)",
+    })
+  })
+
+  test("parses Claude current session usage when the rolling window is zero", () => {
+    const parsed = parseClaudeUsageScreen(`
+Current session
+0% used
+Resets 5:59pm (Asia/Bangkok)
+
+Current week (all models)
+██████████████████████████████████████████████     92% used
+Resets Mar 30, 8am (Asia/Bangkok)
+`)
+
+    expect(parsed).toEqual({
+      sessionLimitUsedPercent: 0,
+      rateLimitResetLabel: "5:59pm (Asia/Bangkok)",
+      weeklyLimitUsedPercent: 92,
+      weeklyRateLimitResetLabel: "Mar 30, 8am (Asia/Bangkok)",
+    })
+  })
+
+  test("refreshes Claude rate limit from CLI output", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "kanna-claude-cli-usage-"))
+    try {
+      const snapshot = await refreshClaudeRateLimitFromCli(root, async () => `
+Current session
+████████████████████████████████████████████▌      89% used
+Resets 1pm (Asia/Bangkok)
+
+Current week (all models)
+██████████████████████████████████████████████     92% used
+Resets Mar 30, 8am (Asia/Bangkok)
+`)
+
+      expect(snapshot?.provider).toBe("claude")
+      expect(snapshot?.sessionLimitUsedPercent).toBe(89)
+      const persisted = JSON.parse(readFileSync(path.join(root, "claude-rate-limit.json"), "utf8"))
+      expect(persisted.rateLimitResetLabel).toBe("1pm (Asia/Bangkok)")
+      expect(persisted.weeklyRateLimitResetLabel).toBe("Mar 30, 8am (Asia/Bangkok)")
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test("refreshes Claude rate limits when the rolling session window is zero", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "kanna-claude-cli-usage-"))
+    try {
+      const snapshot = await refreshClaudeRateLimitFromCli(root, async () => `
+Current session
+0% used
+Resets 5:59pm (Asia/Bangkok)
+
+Current week (all models)
+██████████████████████████████████████████████     92% used
+Resets Mar 30, 8am (Asia/Bangkok)
+`)
+
+      expect(snapshot?.provider).toBe("claude")
+      expect(snapshot?.sessionLimitUsedPercent).toBe(0)
+      const persisted = JSON.parse(readFileSync(path.join(root, "claude-rate-limit.json"), "utf8"))
+      expect(persisted.sessionLimitUsedPercent).toBe(0)
+      expect(persisted.rateLimitResetLabel).toBe("5:59pm (Asia/Bangkok)")
+      expect(persisted.weeklyLimitUsedPercent).toBe(92)
+      expect(persisted.weeklyRateLimitResetLabel).toBe("Mar 30, 8am (Asia/Bangkok)")
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test("upgrades legacy Claude weekly cache entries that were stored in the session field", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "kanna-claude-cli-usage-"))
+    try {
+      writeFileSync(path.join(root, "claude-rate-limit.json"), JSON.stringify({
+        sessionLimitUsedPercent: 92,
+        rateLimitResetAt: null,
+        rateLimitResetLabel: "Mar 30, 8am (Asia/Bangkok)",
+        updatedAt: Date.now(),
+      }))
+
+      const store = new EventStore(root)
+      await store.initialize()
+      const usage = deriveProviderUsage(new Map(), store)
+
+      expect(usage.claude).toMatchObject({
+        sessionLimitUsedPercent: 0,
+        rateLimitResetLabel: "5:59pm (Asia/Bangkok)",
+        weeklyLimitUsedPercent: 92,
+        weeklyRateLimitResetLabel: "Mar 30, 8am (Asia/Bangkok)",
+      })
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test("parses Cursor usage payloads", () => {
+    const parsed = parseCursorUsagePayload({
+      current_period: {
+        used_percent: 41,
+        reset_at: "2026-03-30T08:00:00.000Z",
+      },
+    })
+
+    expect(parsed).toEqual({
+      sessionLimitUsedPercent: 41,
+      rateLimitResetAt: Date.parse("2026-03-30T08:00:00.000Z"),
+      rateLimitResetLabel: null,
+    })
+  })
+
+  test("imports Cursor cookies from a copied curl command", () => {
+    const imported = importCursorSessionFromCurl(`curl 'https://cursor.com/api/dashboard/get-current-period-usage' -H 'accept: */*' -b 'workos_id=user_123; WorkosCursorSessionToken=session_abc; cursor_anonymous_id=anon_1' --data-raw '{}'`)
+
+    expect(imported?.cookies.find((cookie) => cookie.name === "WorkosCursorSessionToken")?.value).toBe("session_abc")
+    expect(imported?.cookies.find((cookie) => cookie.name === "workos_id")?.value).toBe("user_123")
+  })
+
+  test("refreshes Cursor usage and persists a server-side session jar", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "kanna-cursor-usage-"))
+    const originalFetch = globalThis.fetch
+    let usageCallCount = 0
+
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes("/api/dashboard/get-current-period-usage")) {
+        usageCallCount += 1
+        return new Response(JSON.stringify({
+          usage: {
+            used_percent: 64,
+            reset_at: "2026-03-30T08:00:00.000Z",
+          },
+        }), {
+          status: 200,
+          headers: {
+            "set-cookie": "WorkosCursorSessionToken=rotated-session; Domain=.cursor.com; Path=/; HttpOnly; Secure",
+          },
+        })
+      }
+
+      return new Response("<html></html>", { status: 200 })
+    }) as typeof fetch
+
+    try {
+      writeFileSync(path.join(root, "cursor-session.json"), JSON.stringify({
+        cookies: [{
+          name: "WorkosCursorSessionToken",
+          value: "existing-session",
+          domain: "cursor.com",
+          path: "/",
+          expiresAt: null,
+          secure: true,
+          httpOnly: true,
+        }],
+        updatedAt: 1,
+        lastSuccessAt: null,
+      }))
+
+      const entry = await refreshCursorUsage(root)
+      expect(entry.availability).toBe("available")
+      expect(entry.sessionLimitUsedPercent).toBe(64)
+      expect(usageCallCount).toBe(1)
+
+      const persistedSession = JSON.parse(readFileSync(path.join(root, "cursor-session.json"), "utf8"))
+      expect(persistedSession.cookies[0]?.value).toBe("rotated-session")
+    } finally {
+      globalThis.fetch = originalFetch
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test("marks Cursor usage login_required after recovery fails", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "kanna-cursor-login-"))
+    const originalFetch = globalThis.fetch
+    let dashboardCalls = 0
+
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes("/dashboard/spending")) {
+        dashboardCalls += 1
+      }
+      return new Response("{}", { status: 401 })
+    }) as typeof fetch
+
+    try {
+      writeFileSync(path.join(root, "cursor-session.json"), JSON.stringify({
+        cookies: [{
+          name: "WorkosCursorSessionToken",
+          value: "expired-session",
+          domain: "cursor.com",
+          path: "/",
+          expiresAt: null,
+          secure: true,
+          httpOnly: true,
+        }],
+        updatedAt: 1,
+        lastSuccessAt: null,
+      }))
+
+      const entry = await refreshCursorUsage(root, "win32")
+      expect(entry.availability).toBe("login_required")
+      expect(entry.statusDetail).toBe("session_refresh_failed")
+      expect(dashboardCalls).toBe(1)
+    } finally {
+      globalThis.fetch = originalFetch
       rmSync(root, { recursive: true, force: true })
     }
   })

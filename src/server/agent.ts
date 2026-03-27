@@ -28,7 +28,8 @@ import {
   normalizeGeminiModelOptions,
   normalizeServerModel,
 } from "./provider-catalog"
-import { createClaudeRateLimitSnapshot } from "./usage"
+import { createClaudeRateLimitSnapshot, deriveProviderUsage } from "./usage"
+import type { ProviderUsageMap } from "../shared/types"
 
 const CLAUDE_TOOLSET = [
   "Skill",
@@ -326,8 +327,9 @@ async function* createClaudeHarnessStream(q: Query): AsyncGenerator<HarnessEvent
 
     if (sdkMessage.type === "rate_limit_event") {
       const rateLimitInfo = sdkMessage.rate_limit_info
+      const rawUtilization = typeof rateLimitInfo?.utilization === "number" ? rateLimitInfo.utilization : null
       const usage = createClaudeRateLimitSnapshot(
-        typeof rateLimitInfo?.utilization === "number" ? rateLimitInfo.utilization : null,
+        rawUtilization !== null ? rawUtilization * 100 : null,
         typeof rateLimitInfo?.resetsAt === "number" ? rateLimitInfo.resetsAt * 1000 : null
       )
       if (usage) {
@@ -530,6 +532,10 @@ export class AgentCoordinator {
 
   getLiveUsage(chatId: string) {
     return this.liveUsage.get(chatId) ?? null
+  }
+
+  getProviderUsage(): ProviderUsageMap {
+    return deriveProviderUsage(this.liveUsage, this.store)
   }
 
   getChatPendingTool(chatId: string): ChatPendingToolSnapshot | null {

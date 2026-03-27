@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react"
 import { useNavigate } from "react-router-dom"
 import { APP_NAME } from "../../shared/branding"
-import { PROVIDERS, type AgentProvider, type AskUserQuestionAnswerMap, type ChatUserMessage, type DirectoryBrowserSnapshot, type FeatureBrowserState, type FeatureStage, type KeybindingsSnapshot, type ModelOptions, type ProviderCatalogEntry, type ThemeSettingsSnapshot, type UpdateInstallResult, type UpdateSnapshot } from "../../shared/types"
+import { PROVIDERS, type AgentProvider, type AskUserQuestionAnswerMap, type ChatUserMessage, type DirectoryBrowserSnapshot, type FeatureBrowserState, type FeatureStage, type KeybindingsSnapshot, type ModelOptions, type ProviderCatalogEntry, type ProviderUsageEntry, type ThemeSettingsSnapshot, type UpdateInstallResult, type UpdateSnapshot } from "../../shared/types"
 import { useChatPreferencesStore } from "../stores/chatPreferencesStore"
 import { useThemeSettingsStore } from "../stores/themeSettingsStore"
 import { useFeatureSettingsStore } from "../stores/featureSettingsStore"
@@ -182,6 +182,7 @@ export interface KannaState {
   editorLabel: string
   hasSelectedProject: boolean
   createFeatureModalProjectId: string | null
+  cursorCurlImportOpen: boolean
   openSidebar: () => void
   closeSidebar: () => void
   collapseSidebar: () => void
@@ -207,6 +208,10 @@ export interface KannaState {
   handleCreateProject: (project: ProjectRequest) => Promise<void>
   handleCheckForUpdates: (options?: { force?: boolean }) => Promise<void>
   handleInstallUpdate: () => Promise<void>
+  handleRefreshProviderUsage: (provider: AgentProvider) => Promise<void>
+  handleOpenProviderLogin: (provider: AgentProvider) => Promise<void>
+  handleCloseCursorCurlImport: () => void
+  handleSubmitCursorCurlImport: (curlCommand: string) => Promise<void>
   handleSetCommitKannaDirectory: (enabled: boolean) => Promise<void>
   handleSend: (message: ChatUserMessage, options?: { provider?: AgentProvider; model?: string; modelOptions?: ModelOptions; planMode?: boolean }) => Promise<void>
   handleCancel: () => Promise<void>
@@ -252,6 +257,7 @@ export function useKannaState(activeChatId: string | null): KannaState {
   const [startingLocalPath, setStartingLocalPath] = useState<string | null>(null)
   const [pendingChatId, setPendingChatId] = useState<string | null>(null)
   const [createFeatureModalProjectId, setCreateFeatureModalProjectId] = useState<string | null>(null)
+  const [cursorCurlImportOpen, setCursorCurlImportOpen] = useState(false)
   const folderGroupsEnabled = useFeatureSettingsStore((store) => store.folderGroupsEnabled)
   const kanbanStatusesEnabled = useFeatureSettingsStore((store) => store.kanbanStatusesEnabled)
   const editorLabel = getEditorPresetLabel(useTerminalPreferencesStore((store) => store.editorPreset))
@@ -761,6 +767,48 @@ export function useKannaState(activeChatId: string | null): KannaState {
     }
   }
 
+  async function handleRefreshProviderUsage(provider: AgentProvider) {
+    try {
+      await socket.command({ type: "provider.refreshUsage", provider })
+      setCommandError(null)
+    } catch (error) {
+      setCommandError(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  async function handleOpenProviderLogin(provider: AgentProvider) {
+    const url = provider === "cursor" ? "https://cursor.com/dashboard/spending" : null
+    if (!url) return
+
+    try {
+      await socket.command({ type: "system.openUrl", url })
+      if (provider === "cursor") {
+        setCursorCurlImportOpen(true)
+      }
+      setCommandError(null)
+    } catch (error) {
+      setCommandError(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  async function handleSubmitCursorCurlImport(curlCommand: string) {
+    try {
+      const result = await socket.command<ProviderUsageEntry>({
+        type: "provider.importUsageCurl",
+        provider: "cursor",
+        curlCommand,
+      })
+      if (result.availability === "login_required" && result.statusDetail === "invalid_curl_import") {
+        setCommandError("Could not import that cURL command. Copy the get-current-period-usage request as cURL and paste it here.")
+        return
+      }
+      setCursorCurlImportOpen(false)
+      setCommandError(null)
+    } catch (error) {
+      setCommandError(error instanceof Error ? error.message : String(error))
+    }
+  }
+
   async function handleSetChatFeature(chatId: string, featureId: string | null) {
     try {
       await socket.command({ type: "chat.setFeature", chatId, featureId })
@@ -1116,6 +1164,7 @@ export function useKannaState(activeChatId: string | null): KannaState {
     editorLabel,
     hasSelectedProject,
     createFeatureModalProjectId,
+    cursorCurlImportOpen,
     openSidebar: () => setSidebarOpen(true),
     closeSidebar: () => setSidebarOpen(false),
     collapseSidebar: () => setSidebarCollapsed(true),
@@ -1149,6 +1198,10 @@ export function useKannaState(activeChatId: string | null): KannaState {
     handleCreateProject,
     handleCheckForUpdates,
     handleInstallUpdate,
+    handleRefreshProviderUsage,
+    handleOpenProviderLogin,
+    handleCloseCursorCurlImport: () => setCursorCurlImportOpen(false),
+    handleSubmitCursorCurlImport,
     handleSetCommitKannaDirectory,
     handleSend,
     handleCancel,
