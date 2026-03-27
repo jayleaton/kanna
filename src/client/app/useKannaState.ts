@@ -8,7 +8,7 @@ import { useFeatureSettingsStore } from "../stores/featureSettingsStore"
 import { useRightSidebarStore } from "../stores/rightSidebarStore"
 import { useTerminalLayoutStore } from "../stores/terminalLayoutStore"
 import { getEditorPresetLabel, useTerminalPreferencesStore } from "../stores/terminalPreferencesStore"
-import type { ChatSnapshot, ChatUsageSnapshot, LocalProjectsSnapshot, SidebarChatRow, SidebarData } from "../../shared/types"
+import type { ChatSnapshot, ChatUsageSnapshot, KannaStatus, LocalProjectsSnapshot, SidebarChatRow, SidebarData } from "../../shared/types"
 import type { AskUserQuestionItem } from "../components/messages/types"
 import { useAppDialog } from "../components/ui/app-dialog"
 import { processTranscriptMessages } from "../lib/parseTranscript"
@@ -153,6 +153,7 @@ export interface KannaState {
   socket: KannaSocket
   activeChatId: string | null
   sidebarData: SidebarData
+  completedChatIds: Set<string>
   localProjects: LocalProjectsSnapshot | null
   updateSnapshot: UpdateSnapshot | null
   chatSnapshot: ChatSnapshot | null
@@ -259,10 +260,78 @@ export function useKannaState(activeChatId: string | null): KannaState {
   const inputRef = useRef<HTMLDivElement>(null)
   const setRightSidebarVisibility = useRightSidebarStore((store) => store.setVisibility)
 
+  // Completed-chat tracking: detect processing → idle transitions
+  const [completedChatIds, setCompletedChatIds] = useState<Set<string>>(new Set())
+  const previousStatusMapRef = useRef<Map<string, KannaStatus>>(new Map())
+  const activeChatIdRef = useRef(activeChatId)
+  const documentVisibleRef = useRef(typeof document !== "undefined" ? document.visibilityState === "visible" : true)
+
   useEffect(() => socket.onStatus(setConnectionStatus), [socket])
+
+  // Keep refs in sync for the sidebar subscription callback
+  useEffect(() => { activeChatIdRef.current = activeChatId }, [activeChatId])
+
+  useEffect(() => {
+    function handleVisibilityChange() {
+      const visible = document.visibilityState === "visible"
+      documentVisibleRef.current = visible
+      // When the tab regains focus, clear the active chat from completed set
+      if (visible) {
+        const currentActive = activeChatIdRef.current
+        if (currentActive) {
+          setCompletedChatIds((prev) => {
+            if (!prev.has(currentActive)) return prev
+            const next = new Set(prev)
+            next.delete(currentActive)
+            return next
+          })
+        }
+      }
+    }
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange)
+  }, [])
 
   useEffect(() => {
     return socket.subscribe<SidebarData>({ type: "sidebar" }, (snapshot) => {
+      // Detect processing → idle transitions for completed indicator
+      const newStatusMap = new Map<string, KannaStatus>()
+      for (const group of snapshot.projectGroups) {
+        for (const chat of [...group.generalChats, ...group.features.flatMap((f) => f.chats)]) {
+          newStatusMap.set(chat.chatId, chat.status)
+        }
+      }
+
+      const prevMap = previousStatusMapRef.current
+      const currentActiveChatId = activeChatIdRef.current
+      const isDocumentVisible = documentVisibleRef.current
+
+      setCompletedChatIds((prev) => {
+        let next = prev
+        for (const [chatId, newStatus] of newStatusMap) {
+          const oldStatus = prevMap.get(chatId)
+
+          // Chat re-entered processing: remove from completed
+          if (isProcessingStatus(newStatus) && next.has(chatId)) {
+            if (next === prev) next = new Set(prev)
+            next.delete(chatId)
+          }
+
+          // Transition from processing → idle: mark completed if not actively viewed
+          if (
+            oldStatus &&
+            isProcessingStatus(oldStatus) &&
+            newStatus === "idle" &&
+            (chatId !== currentActiveChatId || !isDocumentVisible)
+          ) {
+            if (next === prev) next = new Set(prev)
+            next.add(chatId)
+          }
+        }
+        return next
+      })
+
+      previousStatusMapRef.current = newStatusMap
       setSidebarData(snapshot)
       setSidebarReady(true)
       setCommandError(null)
@@ -363,6 +432,17 @@ export function useKannaState(activeChatId: string | null): KannaState {
       setCommandError(null)
     })
   }, [activeChatId, socket])
+
+  // Clear completed indicator when user navigates to a chat
+  useEffect(() => {
+    if (!activeChatId) return
+    setCompletedChatIds((prev) => {
+      if (!prev.has(activeChatId)) return prev
+      const next = new Set(prev)
+      next.delete(activeChatId)
+      return next
+    })
+  }, [activeChatId])
 
   useEffect(() => {
     if (!activeChatId) return
@@ -1007,6 +1087,7 @@ export function useKannaState(activeChatId: string | null): KannaState {
     socket,
     activeChatId,
     sidebarData,
+    completedChatIds,
     localProjects,
     updateSnapshot,
     chatSnapshot,

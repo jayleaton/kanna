@@ -287,6 +287,7 @@ export function ChatPage() {
       <CardContent className="flex flex-1 min-h-0 flex-col p-0 overflow-hidden relative">
         <ChatNavbar
           sidebarCollapsed={state.sidebarCollapsed}
+          hasCompletedChats={state.completedChatIds.size > 0}
           onOpenSidebar={state.openSidebar}
           onExpandSidebar={state.expandSidebar}
           onNewChat={state.handleCompose}

@@ -9,6 +9,7 @@ import { cn } from "../../lib/utils"
 
 interface Props {
   sidebarCollapsed: boolean
+  hasCompletedChats?: boolean
   onOpenSidebar: () => void
   onExpandSidebar: () => void
   onNewChat: () => void
@@ -30,6 +31,7 @@ interface Props {
 
 export function ChatNavbar({
   sidebarCollapsed,
+  hasCompletedChats = false,
   onOpenSidebar,
   onExpandSidebar,
   onNewChat,
@@ -72,15 +74,21 @@ export function ChatNavbar({
           <Button
             variant="ghost"
             size="icon"
-            className="md:hidden"
+            className="relative md:hidden"
             onClick={onOpenSidebar}
           >
             <Menu className="h-5 w-5" />
+            {hasCompletedChats && (
+              <span className="absolute top-0.5 right-0.5 size-2.5 rounded-full bg-emerald-400 ring-2 ring-background" />
+            )}
           </Button>
           {sidebarCollapsed && (
             <>
-              <div className="flex items-center justify-center w-[40px] h-[40px]">
+              <div className="relative flex items-center justify-center w-[40px] h-[40px]">
                 <Flower className="h-4 w-4 sm:h-5 sm:w-5 text-logo ml-1 hidden md:block" />
+                {hasCompletedChats && (
+                  <span className="absolute top-1.5 right-0.5 size-2.5 rounded-full bg-emerald-400 ring-2 ring-background hidden md:block" />
+                )}
               </div>
               <Button
                 variant="ghost"

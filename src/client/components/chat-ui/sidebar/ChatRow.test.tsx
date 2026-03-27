@@ -62,4 +62,67 @@ describe("ChatRow", () => {
 
     expect(html).not.toContain('provider"')
   })
+
+  test("renders the green completed dot when isCompleted is true", () => {
+    const html = renderToStaticMarkup(
+      <ChatRow
+        chat={createChat("claude")}
+        activeChatId={null}
+        nowMs={1000}
+        isCompleted
+        onSelectChat={() => {}}
+        onDeleteChat={() => {}}
+      />
+    )
+
+    expect(html).toContain("bg-emerald-400")
+  })
+
+  test("does not render the green completed dot when isCompleted is false", () => {
+    const html = renderToStaticMarkup(
+      <ChatRow
+        chat={createChat("claude")}
+        activeChatId={null}
+        nowMs={1000}
+        onSelectChat={() => {}}
+        onDeleteChat={() => {}}
+      />
+    )
+
+    expect(html).not.toContain("bg-emerald-400")
+  })
+
+  test("spinner takes priority over completed dot when chat is loading", () => {
+    const chat = { ...createChat("claude"), status: "running" as const }
+    const html = renderToStaticMarkup(
+      <ChatRow
+        chat={chat}
+        activeChatId={null}
+        nowMs={1000}
+        isCompleted
+        onSelectChat={() => {}}
+        onDeleteChat={() => {}}
+      />
+    )
+
+    expect(html).toContain("animate-spin")
+    expect(html).not.toContain("bg-emerald-400")
+  })
+
+  test("blue dot takes priority over completed dot when waiting_for_user", () => {
+    const chat = { ...createChat("claude"), status: "waiting_for_user" as const }
+    const html = renderToStaticMarkup(
+      <ChatRow
+        chat={chat}
+        activeChatId={null}
+        nowMs={1000}
+        isCompleted
+        onSelectChat={() => {}}
+        onDeleteChat={() => {}}
+      />
+    )
+
+    expect(html).toContain("bg-blue-400")
+    expect(html).not.toContain("bg-emerald-400")
+  })
 })

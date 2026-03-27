@@ -14,6 +14,7 @@ import { clampLeftSidebarWidth } from "../stores/leftSidebarStore"
 
 interface KannaSidebarProps {
   data: SidebarData
+  completedChatIds: Set<string>
   activeChatId: string | null
   connectionStatus: SocketStatus
   ready: boolean
@@ -67,6 +68,7 @@ export function getDesktopSidebarStyle(
 
 export function KannaSidebar({
   data,
+  completedChatIds,
   activeChatId,
   connectionStatus,
   ready,
@@ -266,6 +268,7 @@ export function KannaSidebar({
       activeChatId={activeChatId}
       nowMs={nowMs}
       showProviderIcon={showProviderIconsInSideTray}
+      isCompleted={completedChatIds.has(chat.chatId)}
       onSelectChat={handleSelectChat}
       onDeleteChat={() => onDeleteChat(chat)}
       draggable={options?.draggable}
@@ -275,7 +278,7 @@ export function KannaSidebar({
       onTouchDragMove={options?.onTouchDragMove}
       onTouchDragEnd={options?.onTouchDragEnd}
     />
-  ), [activeChatId, handleSelectChat, nowMs, onDeleteChat, showProviderIconsInSideTray])
+  ), [activeChatId, completedChatIds, handleSelectChat, nowMs, onDeleteChat, showProviderIconsInSideTray])
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
@@ -343,6 +346,7 @@ export function KannaSidebar({
   const toggleSidebarTitle = toggleShortcut && toggleShortcut.length > 0
     ? `Toggle sidebar (${toggleShortcut[0]})`
     : "Toggle sidebar"
+  const hasCompletedChats = completedChatIds.size > 0
 
   const handleResizeStart = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     if (!showDesktopResizeHandle) return
@@ -397,17 +401,25 @@ export function KannaSidebar({
         <Button
           variant="ghost"
           size="icon"
-          className="fixed top-3 left-3 z-50 md:hidden"
+          className="relative fixed top-3 left-3 z-50 md:hidden"
           onClick={onOpen}
         >
           <Menu className="h-5 w-5" />
+          {hasCompletedChats && (
+            <span className="absolute top-0.5 right-0.5 size-2.5 rounded-full bg-emerald-400 ring-2 ring-background" />
+          )}
         </Button>
       )}
 
       {collapsed && isUtilityPageActive && (
         <div className="hidden md:flex fixed left-0 top-0 h-full z-40 items-start pt-4 pl-5 border-l border-border/0">
           <div className="flex items-center gap-1">
-            <Flower className="size-6 text-logo" />
+            <div className="relative">
+              <Flower className="size-6 text-logo" />
+              {hasCompletedChats && (
+                <span className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-emerald-400 ring-2 ring-background" />
+              )}
+            </div>
             <Button
               variant="ghost"
               size="icon"

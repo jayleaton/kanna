@@ -15,6 +15,7 @@ interface Props {
   activeChatId: string | null
   nowMs: number
   showProviderIcon?: boolean
+  isCompleted?: boolean
   onSelectChat: (chatId: string) => void
   onDeleteChat: (chatId: string) => void
   draggable?: boolean
@@ -32,6 +33,7 @@ export function ChatRow({
   activeChatId,
   nowMs,
   showProviderIcon = false,
+  isCompleted = false,
   onSelectChat,
   onDeleteChat,
   draggable = false,
@@ -85,6 +87,13 @@ export function ChatRow({
             <div className="rounded-full z-0 size-3.5 flex items-center justify-center">
               <div className="absolute rounded-full z-0 size-2.5 bg-blue-400/80 animate-ping" />
               <div className="rounded-full z-0 size-2.5 bg-blue-400 ring-2 ring-muted/20 dark:ring-muted/50" />
+            </div>
+          </div>
+        ) : isCompleted ? (
+          <div className="relative">
+            <div className="rounded-full z-0 size-3.5 flex items-center justify-center">
+              <div className="absolute rounded-full z-0 size-2.5 bg-emerald-400/80 animate-ping" />
+              <div className="rounded-full z-0 size-2.5 bg-emerald-400 ring-2 ring-muted/20 dark:ring-muted/50" />
             </div>
           </div>
         ) : null}
