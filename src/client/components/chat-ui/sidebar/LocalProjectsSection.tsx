@@ -1,5 +1,5 @@
-import { type ReactNode, useMemo, useRef, useState } from "react"
-import { ChevronRight, FolderGit2, FolderPlus, Loader2, SquarePen } from "lucide-react"
+import { type MouseEvent, type ReactNode, useMemo, useRef, useState } from "react"
+import { ChevronRight, ChevronsUp, FolderGit2, FolderPlus, Loader2, SquarePen } from "lucide-react"
 import {
   DndContext,
   PointerSensor,
@@ -30,6 +30,8 @@ import { FeatureSectionMenu, ProjectSectionMenu } from "./Menus"
 import { useMediaQuery } from "../../../hooks/useMediaQuery"
 import { useTouchInteraction } from "../../../hooks/useTouchInteraction"
 import { TouchDragOverlay } from "../../ui/touch-drag-overlay"
+
+export const FEATURE_CHAT_PREVIEW_LIMIT = 8
 
 interface Props {
   projectGroups: SidebarProjectGroup[]
@@ -80,6 +82,26 @@ function reorderFeatureIds(features: SidebarProjectGroup["features"], draggedFea
   return arrayMove(ids, oldIndex, newIndex)
 }
 
+export function splitProjectFeatures(features: SidebarProjectGroup["features"]) {
+  return {
+    activeFeatures: features.filter((feature) => feature.stage !== "done"),
+    completedFeatures: features.filter((feature) => feature.stage === "done"),
+  }
+}
+
+export function getVisibleFeatureChats(chats: SidebarProjectGroup["features"][number]["chats"], showAllChats: boolean) {
+  return showAllChats ? chats : chats.slice(0, FEATURE_CHAT_PREVIEW_LIMIT)
+}
+
+export function getFeatureSectionKeysToCollapse(
+  features: SidebarProjectGroup["features"],
+  collapsedSections: Set<string>
+) {
+  return features
+    .map((feature) => `feature:${feature.featureId}`)
+    .filter((featureKey) => !collapsedSections.has(featureKey))
+}
+
 // ─── FeatureSection ──────────────────────────────────────────────────────────
 // Extracted so useTouchInteraction can be called per-feature (hooks in loops
 // are not allowed). The touch handle is attached to the HEADER element only
@@ -97,6 +119,8 @@ interface FeatureSectionProps {
   onSetFeatureBrowserState?: Props["onSetFeatureBrowserState"]
   onSetFeatureStage?: Props["onSetFeatureStage"]
   kanbanStatusesEnabled?: boolean
+  showAllChats: boolean
+  onToggleShowAllChats: () => void
   draggedFeatureId: string | null
   draggedChatId: string | null
   hoveredDropTarget: string | null
@@ -123,6 +147,8 @@ function FeatureSection({
   onSetFeatureBrowserState,
   onSetFeatureStage,
   kanbanStatusesEnabled = true,
+  showAllChats,
+  onToggleShowAllChats,
   draggedFeatureId,
   draggedChatId,
   hoveredDropTarget,
@@ -139,6 +165,9 @@ function FeatureSection({
   const featureKey = `feature:${feature.featureId}`
   const isOpen = sectionOpen(collapsedSections, featureKey)
   const dropActive = draggedChatId !== null
+  const visibleChats = getVisibleFeatureChats(feature.chats, showAllChats)
+  const hiddenChatCount = Math.max(0, feature.chats.length - FEATURE_CHAT_PREVIEW_LIMIT)
+  const hasMoreChats = hiddenChatCount > 0
 
   const [mobileMenuPos, setMobileMenuPos] = useState<{ x: number; y: number } | null>(null)
 
@@ -284,7 +313,7 @@ function FeatureSection({
 
       {isOpen ? (
         <div className="space-y-[2px] border-t border-border/50 p-1 pl-3">
-          {feature.chats.map((chat) => renderChatRow(chat, {
+          {visibleChats.map((chat) => renderChatRow(chat, {
             draggable: true,
             onDragStart: (draggedChat) => onChatDragStart(draggedChat.chatId),
             onDragEnd: onChatDragEnd,
@@ -292,6 +321,19 @@ function FeatureSection({
             onTouchDragMove,
             onTouchDragEnd,
           }))}
+          {hasMoreChats ? (
+            <div className="pt-1">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs text-muted-foreground"
+                onClick={onToggleShowAllChats}
+              >
+                {showAllChats ? "Show less" : `Show ${hiddenChatCount} more`}
+              </Button>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -349,6 +391,7 @@ function SortableProjectGroup({
   kanbanStatusesEnabled = true,
 }: SortableProjectGroupProps) {
   const { groupKey, localPath, features, generalChats } = group
+  const { activeFeatures, completedFeatures } = useMemo(() => splitProjectFeatures(features), [features])
   const projectKey = `project:${groupKey}`
   const generalChatsKey = `general:${groupKey}`
   const showProjectBody = sectionOpen(collapsedSections, projectKey)
@@ -358,6 +401,8 @@ function SortableProjectGroup({
   const [draggedFeatureId, setDraggedFeatureId] = useState<string | null>(null)
   const [hoveredDropTarget, setHoveredDropTarget] = useState<string | null>(null)
   const [showAllGeneralChats, setShowAllGeneralChats] = useState(false)
+  const [showCompletedFeatures, setShowCompletedFeatures] = useState(false)
+  const [expandedFeatureChats, setExpandedFeatureChats] = useState<Record<string, boolean>>({})
   const [projectMobileMenuPos, setProjectMobileMenuPos] = useState<{ x: number; y: number } | null>(null)
 
   const isTouchDevice = useMediaQuery("(pointer: coarse)")
@@ -393,6 +438,25 @@ function SortableProjectGroup({
   function toggleGeneralChatsSection() {
     onToggleSection(generalChatsKey)
     onSetProjectGeneralChatsBrowserState?.(groupKey, showGeneralChats ? "CLOSED" : "OPEN")
+  }
+
+  function toggleFeatureChatVisibility(featureId: string) {
+    setExpandedFeatureChats((previous) => ({
+      ...previous,
+      [featureId]: !previous[featureId],
+    }))
+  }
+
+  function collapseAllFeatureSections(event: MouseEvent<HTMLButtonElement>) {
+    event.stopPropagation()
+
+    for (const featureKey of getFeatureSectionKeysToCollapse(features, collapsedSections)) {
+      onToggleSection(featureKey)
+    }
+
+    for (const feature of features) {
+      onSetFeatureBrowserState?.(feature.featureId, "CLOSED")
+    }
   }
 
   // ── Touch drag helpers ───────────────────────────────────────────────────
@@ -500,6 +564,22 @@ function SortableProjectGroup({
             <TooltipContent side="right" sideOffset={4}>New feature</TooltipContent>
           </Tooltip>
         ) : null}
+        {features.length > 0 ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-5.5 w-5.5 !rounded opacity-100 md:opacity-0 md:group-hover/section:opacity-100"
+                data-no-touch-drag
+                onClick={collapseAllFeatureSections}
+              >
+                <ChevronsUp className="size-3.5 text-slate-500 dark:text-slate-400" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right" sideOffset={4}>Close all feature folders</TooltipContent>
+          </Tooltip>
+        ) : null}
         {onNewLocalChat ? (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -553,9 +633,9 @@ function SortableProjectGroup({
 
       {showProjectBody ? (
         <div className="mb-2 space-y-2">
-          {folderGroupsEnabled && features.length > 0 ? (
+          {folderGroupsEnabled && activeFeatures.length > 0 ? (
             <section className="space-y-2 pl-6">
-              {features.map((feature) => (
+              {activeFeatures.map((feature) => (
                 <FeatureSection
                   key={feature.featureId}
                   feature={feature}
@@ -569,6 +649,8 @@ function SortableProjectGroup({
                   onSetFeatureBrowserState={onSetFeatureBrowserState}
                   onSetFeatureStage={onSetFeatureStage}
                   kanbanStatusesEnabled={kanbanStatusesEnabled}
+                  showAllChats={Boolean(expandedFeatureChats[feature.featureId])}
+                  onToggleShowAllChats={() => toggleFeatureChatVisibility(feature.featureId)}
                   draggedFeatureId={draggedFeatureId}
                   draggedChatId={draggedChatId}
                   hoveredDropTarget={hoveredDropTarget}
@@ -590,6 +672,61 @@ function SortableProjectGroup({
                   onChatDragEnd={() => setDraggedChatId(null)}
                 />
               ))}
+            </section>
+          ) : null}
+
+          {folderGroupsEnabled && completedFeatures.length > 0 ? (
+            <section className="pl-6">
+              <button
+                type="button"
+                onClick={() => setShowCompletedFeatures((value) => !value)}
+                className="flex w-full items-center gap-2 px-2 py-1 text-left text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground"
+              >
+                <ChevronRight className={cn("size-3 transition-transform", showCompletedFeatures && "rotate-90")} />
+                <span>{showCompletedFeatures ? "Hide completed" : "Show completed"}</span>
+                <span className="ml-auto">{completedFeatures.length}</span>
+              </button>
+              {showCompletedFeatures ? (
+                <div className="space-y-2 pt-1">
+                  {completedFeatures.map((feature) => (
+                    <FeatureSection
+                      key={feature.featureId}
+                      feature={feature}
+                      groupKey={groupKey}
+                      collapsedSections={collapsedSections}
+                      onToggleSection={onToggleSection}
+                      renderChatRow={renderChatRow}
+                      onNewLocalChat={onNewLocalChat}
+                      onRenameFeature={onRenameFeature}
+                      onDeleteFeature={onDeleteFeature}
+                      onSetFeatureBrowserState={onSetFeatureBrowserState}
+                      onSetFeatureStage={onSetFeatureStage}
+                      kanbanStatusesEnabled={kanbanStatusesEnabled}
+                      showAllChats={Boolean(expandedFeatureChats[feature.featureId])}
+                      onToggleShowAllChats={() => toggleFeatureChatVisibility(feature.featureId)}
+                      draggedFeatureId={draggedFeatureId}
+                      draggedChatId={draggedChatId}
+                      hoveredDropTarget={hoveredDropTarget}
+                      isTouchDevice={isTouchDevice}
+                      onFeatureDragStart={(fId) => setDraggedFeatureId(fId)}
+                      onFeatureDragEnd={() => setDraggedFeatureId(null)}
+                      onFeatureDrop={(draggedId, targetId) => {
+                        const orderedIds = reorderFeatureIds(features, draggedId, targetId)
+                        setDraggedFeatureId(null)
+                        if (orderedIds) onReorderFeatures?.(groupKey, orderedIds)
+                      }}
+                      onChatDrop={(chatId, featureId) => {
+                        onSetChatFeature?.(chatId, featureId)
+                        setDraggedChatId(null)
+                      }}
+                      onTouchDragMove={handleTouchDragMove}
+                      onTouchDragEnd={handleTouchDragEnd}
+                      onChatDragStart={(chatId) => setDraggedChatId(chatId)}
+                      onChatDragEnd={() => setDraggedChatId(null)}
+                    />
+                  ))}
+                </div>
+              ) : null}
             </section>
           ) : null}
 
