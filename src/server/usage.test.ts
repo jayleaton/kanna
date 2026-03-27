@@ -3,20 +3,17 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os"
 import path from "node:path"
 import type { TranscriptEntry } from "../shared/types"
+import { importCursorSessionFromCurl } from "./usage/cursor-cookies"
+import { parseCursorUsagePayload, refreshCursorUsage, resetCursorUsageCaches } from "./usage/cursor-usage"
 import {
-  applyThreadEstimate,
-  deriveProviderUsage,
-  estimateCurrentThreadTokens,
-  mergeUsageSnapshots,
-  importCursorSessionFromCurl,
-  parseCursorUsagePayload,
   parseClaudeUsageScreen,
   refreshClaudeRateLimitFromCli,
-  refreshCursorUsage,
   reconstructClaudeUsage,
-  reconstructCodexUsageFromFile,
-  resetProviderUsageCaches,
-} from "./usage"
+  resetClaudeUsageCaches,
+} from "./usage/claude-usage"
+import { reconstructCodexUsageFromFile, resetCodexUsageCaches } from "./usage/codex-usage"
+import { deriveProviderUsage } from "./usage/provider-usage"
+import { applyThreadEstimate, estimateCurrentThreadTokens, mergeUsageSnapshots } from "./usage/utils"
 import { EventStore } from "./event-store"
 
 function transcriptEntry(overrides: Partial<TranscriptEntry> & Pick<TranscriptEntry, "kind">): TranscriptEntry {
@@ -109,7 +106,7 @@ describe("usage reconstruction", () => {
     ])
 
     expect(snapshot?.threadTokens).toBeGreaterThan(900)
-    expect(snapshot?.contextWindowTokens).toBe(200000)
+    expect(snapshot?.contextWindowTokens).toBe(200_000)
     expect(snapshot?.contextUsedPercent).not.toBeNull()
   })
 
@@ -144,7 +141,7 @@ describe("usage reconstruction", () => {
       }),
     ])
 
-    expect(snapshot?.contextWindowTokens).toBe(200000)
+    expect(snapshot?.contextWindowTokens).toBe(1_000_000)
   })
 
   test("reconstructs Codex usage from persisted token_count records", () => {
@@ -293,7 +290,9 @@ Resets Mar 30, 8am (Asia/Bangkok)
   })
 
   test("upgrades legacy Claude weekly cache entries that were stored in the session field", async () => {
-    resetProviderUsageCaches()
+    resetClaudeUsageCaches()
+    resetCodexUsageCaches()
+    resetCursorUsageCaches()
     const root = mkdtempSync(path.join(tmpdir(), "kanna-claude-cli-usage-"))
     try {
       writeFileSync(path.join(root, "claude-rate-limit.json"), JSON.stringify({

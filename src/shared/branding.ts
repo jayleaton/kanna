@@ -63,6 +63,14 @@ export function getThemeSettingsFilePathDisplay(env: RuntimeEnv = getRuntimeEnv(
   return `${getDataRootDirDisplay(env)}/theme.json`
 }
 
+export function getProviderSettingsFilePath(homeDir: string, env: RuntimeEnv = getRuntimeEnv()) {
+  return `${getDataRootDir(homeDir, env)}/providers.json`
+}
+
+export function getProviderSettingsFilePathDisplay(env: RuntimeEnv = getRuntimeEnv()) {
+  return `${getDataRootDirDisplay(env)}/providers.json`
+}
+
 export function getCliInvocation(arg?: string) {
   return arg ? `${CLI_COMMAND} ${arg}` : CLI_COMMAND
 }

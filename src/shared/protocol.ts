@@ -6,6 +6,7 @@ import type {
   FeatureBrowserState,
   FeatureStage,
   KeybindingsSnapshot,
+  ProviderSettingsSnapshot,
   LocalProjectsSnapshot,
   ModelOptions,
   SidebarData,
@@ -26,6 +27,7 @@ export type SubscriptionTopic =
   | { type: "update" }
   | { type: "keybindings" }
   | { type: "theme-settings" }
+  | { type: "provider-settings" }
   | { type: "chat"; chatId: string }
   | { type: "terminal"; terminalId: string }
 
@@ -63,6 +65,7 @@ export type ClientCommand =
   | { type: "settings.readKeybindings" }
   | { type: "settings.writeKeybindings"; bindings: KeybindingsSnapshot["bindings"] }
   | { type: "settings.writeThemeSettings"; settings: ThemeSettingsSnapshot["settings"] }
+  | { type: "settings.writeProviderSettings"; settings: ProviderSettingsSnapshot["settings"] }
   | {
       type: "system.openExternal"
       localPath: string
@@ -116,6 +119,7 @@ export type ServerSnapshot =
   | { type: "update"; data: UpdateSnapshot }
   | { type: "keybindings"; data: KeybindingsSnapshot }
   | { type: "theme-settings"; data: ThemeSettingsSnapshot }
+  | { type: "provider-settings"; data: ProviderSettingsSnapshot }
   | { type: "chat"; data: ChatSnapshot | null }
   | { type: "terminal"; data: TerminalSnapshot | null }
 

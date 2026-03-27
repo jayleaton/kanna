@@ -1,5 +1,5 @@
 import type { ServerWebSocket } from "bun"
-import { PROTOCOL_VERSION, type AgentProvider } from "../shared/types"
+import { DEFAULT_PROVIDER_SETTINGS, PROTOCOL_VERSION, getSelectableProviders, isProviderSelectable, type AgentProvider } from "../shared/types"
 import type { ClientEnvelope, ServerEnvelope, SubscriptionTopic } from "../shared/protocol"
 import { isClientEnvelope } from "../shared/protocol"
 import type { AgentCoordinator } from "./agent"
@@ -8,22 +8,17 @@ import { EventStore } from "./event-store"
 import { openExternal, openUrl } from "./external-open"
 import { GitManager } from "./git-manager"
 import { KeybindingsManager } from "./keybindings"
+import { ProviderSettingsManager } from "./provider-settings"
 import { ThemeSettingsManager } from "./theme-settings"
 import { listProjectDirectories, requireProjectDirectory, ensureProjectDirectory } from "./paths"
 import { importProjectHistory } from "./recovery"
 import { TerminalManager } from "./terminal-manager"
 import type { UpdateManager } from "./update-manager"
 import { deriveChatSnapshot, deriveLocalProjectsSnapshot, deriveSidebarData } from "./read-models"
-import {
-  applyThreadEstimate,
-  mergeUsageSnapshots,
-  reconstructClaudeUsage,
-  reconstructCodexUsageFromFile,
-  importCursorUsageFromCurl,
-  refreshClaudeRateLimitFromCli,
-  refreshCursorUsage,
-  signInToCursorWithBrowser,
-} from "./usage"
+import { applyThreadEstimate, mergeUsageSnapshots } from "./usage/utils"
+import { reconstructClaudeUsage, refreshClaudeRateLimitFromCli } from "./usage/claude-usage"
+import { reconstructCodexUsageFromFile } from "./usage/codex-usage"
+import { importCursorUsageFromCurl, refreshCursorUsage, signInToCursorWithBrowser } from "./usage/cursor-usage"
 
 export interface ClientState {
   subscriptions: Map<string, SubscriptionTopic>
@@ -38,6 +33,7 @@ interface CreateWsRouterArgs {
   terminals: TerminalManager
   git: GitManager
   keybindings: KeybindingsManager
+  providerSettings?: ProviderSettingsManager
   themeSettings: ThemeSettingsManager
   refreshDiscovery: () => Promise<DiscoveredProject[]>
   getDiscoveredProjects: () => DiscoveredProject[]
@@ -58,6 +54,7 @@ export function createWsRouter({
   terminals,
   git,
   keybindings,
+  providerSettings,
   themeSettings,
   refreshDiscovery,
   getDiscoveredProjects,
@@ -65,10 +62,11 @@ export function createWsRouter({
   updateManager,
   providerUsagePollIntervalMs,
   refreshProviderUsage = async (provider, force) => {
-    if (!provider || provider === "claude") {
+    const selectableProviders = getSelectableProviders(providerSettings?.getSnapshot().settings ?? DEFAULT_PROVIDER_SETTINGS).map((entry) => entry.id)
+    if (((!provider && selectableProviders.includes("claude")) || provider === "claude") && selectableProviders.includes("claude")) {
       await refreshClaudeRateLimitFromCli(store.dataDir, undefined, force).then(() => {})
     }
-    if (!provider || provider === "cursor") {
+    if (((!provider && selectableProviders.includes("cursor")) || provider === "cursor") && selectableProviders.includes("cursor")) {
       await refreshCursorUsage(store.dataDir, undefined, force).then(() => {})
     }
   },
@@ -130,6 +128,22 @@ export function createWsRouter({
       }
     }
 
+    if (topic.type === "provider-settings") {
+      return {
+        v: PROTOCOL_VERSION,
+        type: "snapshot",
+        id,
+        snapshot: {
+          type: "provider-settings",
+          data: providerSettings?.getSnapshot() ?? {
+            settings: DEFAULT_PROVIDER_SETTINGS,
+            warning: null,
+            filePathDisplay: "",
+          },
+        },
+      }
+    }
+
     if (topic.type === "update") {
       return {
         v: PROTOCOL_VERSION,
@@ -185,7 +199,8 @@ export function createWsRouter({
             agent.getActiveStatuses(),
             topic.chatId,
             agent.getChatPendingTool(topic.chatId),
-            usage
+            usage,
+            providerSettings?.getSnapshot().settings ?? DEFAULT_PROVIDER_SETTINGS
           )
         })(),
       },
@@ -266,6 +281,16 @@ export function createWsRouter({
       }
     }
   })
+
+  const disposeProviderSettingsEvents = providerSettings?.onChange(() => {
+    for (const ws of sockets) {
+      for (const [id, topic] of ws.data.subscriptions.entries()) {
+        if (topic.type !== "provider-settings") continue
+        send(ws, createEnvelope(id, topic))
+      }
+    }
+    broadcastSnapshots()
+  }) ?? (() => {})
 
   const disposeUpdateEvents = updateManager?.onChange(() => {
     for (const ws of sockets) {
@@ -362,6 +387,12 @@ export function createWsRouter({
         }
         case "settings.writeThemeSettings": {
           const snapshot = await themeSettings.write(command.settings)
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: snapshot })
+          return
+        }
+        case "settings.writeProviderSettings": {
+          if (!providerSettings) throw new Error("Provider settings unavailable.")
+          const snapshot = await providerSettings.write(command.settings)
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: snapshot })
           return
         }
@@ -477,6 +508,9 @@ export function createWsRouter({
           break
         }
         case "provider.refreshUsage": {
+          if (command.provider && !isProviderSelectable(command.provider, providerSettings?.getSnapshot().settings ?? DEFAULT_PROVIDER_SETTINGS)) {
+            throw new Error(`${command.provider} is inactive.`)
+          }
           await refreshProviderUsage(command.provider, true)
           broadcastSidebarSnapshots()
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id })
@@ -560,6 +594,9 @@ export function createWsRouter({
           break
         }
         case "chat.send": {
+          if (command.provider && !isProviderSelectable(command.provider, providerSettings?.getSnapshot().settings ?? DEFAULT_PROVIDER_SETTINGS)) {
+            throw new Error(`${command.provider} is inactive.`)
+          }
           const result = await agent.send(command)
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
           break
@@ -684,6 +721,7 @@ export function createWsRouter({
       }
       disposeTerminalEvents()
       disposeKeybindingEvents()
+      disposeProviderSettingsEvents()
       disposeThemeSettingsEvents()
       disposeUpdateEvents()
     },

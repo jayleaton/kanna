@@ -4,6 +4,7 @@ import {
   CLAUDE_REASONING_OPTIONS,
   CODEX_REASONING_OPTIONS,
   GEMINI_THINKING_OPTIONS,
+  getProviderCatalog,
   getCursorModelBaseId,
   getCursorModelSpeed,
   type AgentProvider,
@@ -229,6 +230,7 @@ export function InputPopover({
 interface ChatPreferenceControlsProps {
   availableProviders: ProviderCatalogEntry[]
   selectedProvider: AgentProvider
+  disabled?: boolean
   showProviderPicker?: boolean
   providerLocked?: boolean
   model: string
@@ -248,6 +250,7 @@ interface ChatPreferenceControlsProps {
 export function ChatPreferenceControls({
   availableProviders,
   selectedProvider,
+  disabled = false,
   showProviderPicker = true,
   providerLocked = false,
   model,
@@ -264,7 +267,7 @@ export function ChatPreferenceControls({
   className,
 }: ChatPreferenceControlsProps) {
   const [cursorModelFamily, setCursorModelFamily] = useState<CursorModelFamily | null>(null)
-  const providerConfig = availableProviders.find((provider) => provider.id === selectedProvider) ?? availableProviders[0]
+  const providerConfig = availableProviders.find((provider) => provider.id === selectedProvider) ?? getProviderCatalog(selectedProvider)
   const ProviderIcon = PROVIDER_ICONS[selectedProvider]
   const ModelIcon = MODEL_ICON_BY_ID[model] ?? Sparkles
   const showPlanMode = includePlanMode && providerConfig?.supportsPlanMode && onPlanModeChange
@@ -292,7 +295,7 @@ export function ChatPreferenceControls({
   }, [selectedProvider])
 
   return (
-    <div className={cn("max-w-full overflow-x-auto scrollbar-hide", className)}>
+    <div className={cn("max-w-full overflow-x-auto scrollbar-hide", disabled && "pointer-events-none opacity-60", className)}>
       <div className="flex w-max items-center justify-center gap-0.5 mx-auto">
         {showProviderPicker ? (
           <InputPopover

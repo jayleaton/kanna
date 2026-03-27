@@ -1,7 +1,25 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react"
 import { useNavigate } from "react-router-dom"
 import { APP_NAME } from "../../shared/branding"
-import { PROVIDERS, type AgentProvider, type AskUserQuestionAnswerMap, type ChatUserMessage, type DirectoryBrowserSnapshot, type FeatureBrowserState, type FeatureStage, type KeybindingsSnapshot, type ModelOptions, type ProviderCatalogEntry, type ProviderUsageEntry, type ThemeSettingsSnapshot, type UpdateInstallResult, type UpdateSnapshot } from "../../shared/types"
+import {
+  DEFAULT_PROVIDER_SETTINGS,
+  getSelectableProviders,
+  isProviderSelectable,
+  type AgentProvider,
+  type AskUserQuestionAnswerMap,
+  type ChatUserMessage,
+  type DirectoryBrowserSnapshot,
+  type FeatureBrowserState,
+  type FeatureStage,
+  type KeybindingsSnapshot,
+  type ModelOptions,
+  type ProviderCatalogEntry,
+  type ProviderSettingsSnapshot,
+  type ProviderUsageEntry,
+  type ThemeSettingsSnapshot,
+  type UpdateInstallResult,
+  type UpdateSnapshot,
+} from "../../shared/types"
 import { useChatPreferencesStore } from "../stores/chatPreferencesStore"
 import { useThemeSettingsStore } from "../stores/themeSettingsStore"
 import { useFeatureSettingsStore } from "../stores/featureSettingsStore"
@@ -158,6 +176,7 @@ export interface KannaState {
   updateSnapshot: UpdateSnapshot | null
   chatSnapshot: ChatSnapshot | null
   keybindings: KeybindingsSnapshot | null
+  providerSettings: ProviderSettingsSnapshot | null
   connectionStatus: SocketStatus
   sidebarReady: boolean
   localProjectsReady: boolean
@@ -244,6 +263,7 @@ export function useKannaState(activeChatId: string | null): KannaState {
   const [updateSnapshot, setUpdateSnapshot] = useState<UpdateSnapshot | null>(null)
   const [chatSnapshot, setChatSnapshot] = useState<ChatSnapshot | null>(null)
   const [keybindings, setKeybindings] = useState<KeybindingsSnapshot | null>(null)
+  const [providerSettings, setProviderSettings] = useState<ProviderSettingsSnapshot | null>(null)
   const [connectionStatus, setConnectionStatus] = useState<SocketStatus>("connecting")
   const [sidebarReady, setSidebarReady] = useState(false)
   const [localProjectsReady, setLocalProjectsReady] = useState(false)
@@ -416,6 +436,13 @@ export function useKannaState(activeChatId: string | null): KannaState {
   }, [socket])
 
   useEffect(() => {
+    return socket.subscribe<ProviderSettingsSnapshot>({ type: "provider-settings" }, (snapshot) => {
+      setProviderSettings(snapshot)
+      setCommandError(null)
+    })
+  }, [socket])
+
+  useEffect(() => {
     if (!activeChatId) {
       logKannaState("clearing chat snapshot for non-chat route")
       setChatSnapshot(null)
@@ -519,7 +546,8 @@ export function useKannaState(activeChatId: string | null): KannaState {
   const latestToolIds = useMemo(() => getLatestToolIds(messages), [messages])
   const runtime = activeChatSnapshot?.runtime ?? null
   const usage = activeChatSnapshot?.usage ?? null
-  const availableProviders = activeChatSnapshot?.availableProviders ?? PROVIDERS
+  const availableProviders = activeChatSnapshot?.availableProviders
+    ?? getSelectableProviders(providerSettings?.settings ?? DEFAULT_PROVIDER_SETTINGS)
   const isProcessing = isProcessingStatus(runtime?.status)
   const canCancel = canCancelStatus(runtime?.status)
   const transcriptPaddingBottom = getTranscriptPaddingBottom(inputHeight)
@@ -946,6 +974,10 @@ export function useKannaState(activeChatId: string | null): KannaState {
         throw new Error("Open a project first")
       }
 
+      if (options?.provider && !isProviderSelectable(options.provider, providerSettings?.settings ?? DEFAULT_PROVIDER_SETTINGS)) {
+        throw new Error(`${options.provider} is inactive.`)
+      }
+
       const result = await socket.command<{ chatId?: string }>({
         type: "chat.send",
         chatId: activeChatId ?? undefined,
@@ -1150,6 +1182,7 @@ export function useKannaState(activeChatId: string | null): KannaState {
     updateSnapshot,
     chatSnapshot,
     keybindings,
+    providerSettings,
     connectionStatus,
     sidebarReady,
     localProjectsReady,

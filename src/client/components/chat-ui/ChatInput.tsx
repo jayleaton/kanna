@@ -1,6 +1,7 @@
 import { forwardRef, memo, useCallback, useEffect, useRef, useState } from "react"
 import { ArrowUp, Paperclip, X } from "lucide-react"
 import {
+  getProviderCatalog,
   type AgentProvider,
   type ChatAttachmentUpload,
   type ChatUserMessage,
@@ -247,12 +248,14 @@ const ChatInputInner = forwardRef<HTMLTextAreaElement, Props>(function ChatInput
   ))
 
   const providerLocked = activeProvider !== null
+  const noAvailableProviders = !providerLocked && availableProviders.length === 0
   const providerPrefs = providerLocked
     ? lockedComposerState ?? createLockedComposerState(activeProvider, composerState, providerDefaults, activeModel, activePlanMode)
     : composerState
   const selectedProvider = providerLocked ? activeProvider : composerState.provider
-  const providerConfig = availableProviders.find((provider) => provider.id === selectedProvider) ?? availableProviders[0]
+  const providerConfig = availableProviders.find((provider) => provider.id === selectedProvider) ?? getProviderCatalog(selectedProvider)
   const showPlanMode = providerConfig?.supportsPlanMode ?? false
+  const composerDisabled = disabled || noAvailableProviders
 
   const autoResize = useCallback(() => {
     const element = textareaRef.current
@@ -302,6 +305,13 @@ const ChatInputInner = forwardRef<HTMLTextAreaElement, Props>(function ChatInput
 
     setLockedComposerState(createLockedComposerState(activeProvider, composerState, providerDefaults, activeModel, activePlanMode))
   }, [activeModel, activePlanMode, activeProvider, chatId, composerState, providerDefaults])
+
+  useEffect(() => {
+    if (providerLocked) return
+    if (availableProviders.length === 0) return
+    if (availableProviders.some((provider) => provider.id === composerState.provider)) return
+    resetComposerFromProvider(availableProviders[0].id)
+  }, [availableProviders, composerState.provider, providerLocked, resetComposerFromProvider])
 
   useEffect(() => {
     logChatInput("resolved provider state", {
@@ -387,6 +397,7 @@ const ChatInputInner = forwardRef<HTMLTextAreaElement, Props>(function ChatInput
   }
 
   async function handleSubmit() {
+    if (composerDisabled) return
     if (!value.trim() && images.length === 0) return
     const nextValue = value
     const nextImages = images
@@ -435,7 +446,7 @@ const ChatInputInner = forwardRef<HTMLTextAreaElement, Props>(function ChatInput
   }
 
   const addImageFiles = useCallback((incomingFiles: File[]) => {
-    if (disabled) return
+    if (composerDisabled) return
 
     const imageFiles = incomingFiles.filter((file) => file.type.startsWith("image/"))
     if (imageFiles.length === 0) {
@@ -474,7 +485,7 @@ const ChatInputInner = forwardRef<HTMLTextAreaElement, Props>(function ChatInput
       setAttachmentError(nextError)
       return next
     })
-  }, [disabled])
+  }, [composerDisabled])
 
   const removeImage = useCallback((imageId: string) => {
     setImages((current) => {
@@ -575,7 +586,7 @@ const ChatInputInner = forwardRef<HTMLTextAreaElement, Props>(function ChatInput
                     size="icon-sm"
                     className="shrink-0"
                     onClick={() => removeImage(image.id)}
-                    disabled={disabled}
+                    disabled={composerDisabled}
                   >
                     <X className="h-3.5 w-3.5" />
                   </Button>
@@ -591,7 +602,7 @@ const ChatInputInner = forwardRef<HTMLTextAreaElement, Props>(function ChatInput
             variant="ghost"
             size="icon"
             className="mt-1.5 md:mt-0 h-10 w-10 shrink-0 rounded-full"
-            disabled={disabled || canCancel}
+            disabled={composerDisabled || canCancel}
             onClick={() => fileInputRef.current?.click()}
           >
             <Paperclip className="h-4.5 w-4.5" />
@@ -617,7 +628,7 @@ const ChatInputInner = forwardRef<HTMLTextAreaElement, Props>(function ChatInput
               }
             }}
             onKeyDown={handleKeyDown}
-            disabled={disabled}
+            disabled={composerDisabled}
             className="flex-1 text-base py-2 md:py-3.75 px-1 md:px-2 resize-none max-h-[200px] outline-none bg-transparent border-0 shadow-none"
           />
           <Button
@@ -626,11 +637,11 @@ const ChatInputInner = forwardRef<HTMLTextAreaElement, Props>(function ChatInput
               event.preventDefault()
               if (canCancel) {
                 onCancel?.()
-              } else if (!disabled && (value.trim() || images.length > 0)) {
+              } else if (!composerDisabled && (value.trim() || images.length > 0)) {
                 void handleSubmit()
               }
             }}
-            disabled={!canCancel && (disabled || (!value.trim() && images.length === 0))}
+            disabled={!canCancel && (composerDisabled || (!value.trim() && images.length === 0))}
             size="icon"
             className="flex-shrink-0 bg-slate-600 text-white dark:bg-white dark:text-slate-900 rounded-full cursor-pointer h-10 w-10 md:h-11 md:w-11 md:mb-0.5 -mr-0.5 md:mr-0 touch-manipulation disabled:bg-white/60 disabled:text-slate-700"
           >
@@ -654,6 +665,7 @@ const ChatInputInner = forwardRef<HTMLTextAreaElement, Props>(function ChatInput
         <ChatPreferenceControls
           availableProviders={availableProviders}
           selectedProvider={selectedProvider}
+          disabled={composerDisabled}
           providerLocked={providerLocked}
           model={providerPrefs.model}
           modelOptions={providerPrefs.modelOptions}
@@ -695,6 +707,12 @@ const ChatInputInner = forwardRef<HTMLTextAreaElement, Props>(function ChatInput
           includePlanMode={showPlanMode}
           className="w-full relative z-10"
         />
+
+        {noAvailableProviders ? (
+          <div className="px-2 py-1 text-xs text-muted-foreground">
+            No active providers are available. Re-enable one in Settings.
+          </div>
+        ) : null}
       </div>
 
       </div>

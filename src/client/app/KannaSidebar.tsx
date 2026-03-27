@@ -2,13 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { Flower, Loader2, PanelLeft, X, Menu, Plus, Settings } from "lucide-react"
 import { useLocation, useNavigate } from "react-router-dom"
 import { APP_NAME } from "../../shared/branding"
+import { DEFAULT_PROVIDER_SETTINGS, getSelectableProviders } from "../../shared/types"
 import { Button } from "../components/ui/button"
 import { cn } from "../lib/utils"
 import { ChatRow } from "../components/chat-ui/sidebar/ChatRow"
 import { LocalProjectsSection } from "../components/chat-ui/sidebar/LocalProjectsSection"
 import { ProviderUsageToolbar } from "../components/chat-ui/sidebar/ProviderUsageToolbar"
 import { useChatPreferencesStore } from "../stores/chatPreferencesStore"
-import type { AgentProvider, FeatureBrowserState, FeatureStage, SidebarData, SidebarChatRow, SidebarProjectGroup, UpdateSnapshot } from "../../shared/types"
+import type { AgentProvider, FeatureBrowserState, FeatureStage, ProviderSettingsSnapshot, SidebarData, SidebarChatRow, SidebarProjectGroup, UpdateSnapshot } from "../../shared/types"
 import type { SocketStatus } from "./socket"
 import { useProjectGroupOrderStore } from "../stores/projectGroupOrderStore"
 import { clampLeftSidebarWidth } from "../stores/leftSidebarStore"
@@ -47,6 +48,7 @@ interface KannaSidebarProps {
   onRemoveProject: (projectId: string) => void
   onRefreshProviderUsage: (provider?: AgentProvider) => Promise<void>
   onOpenProviderLogin: (provider: "cursor") => void
+  providerSettings: ProviderSettingsSnapshot | null
   startingLocalPath?: string | null
   updateSnapshot: UpdateSnapshot | null
   onInstallUpdate: () => void
@@ -103,6 +105,7 @@ export function KannaSidebar({
   onRemoveProject,
   onRefreshProviderUsage,
   onOpenProviderLogin,
+  providerSettings,
   startingLocalPath,
   updateSnapshot,
   onInstallUpdate,
@@ -124,6 +127,10 @@ export function KannaSidebar({
 
   const savedOrder = useProjectGroupOrderStore((s) => s.order)
   const setGroupOrder = useProjectGroupOrderStore((s) => s.setOrder)
+  const visibleProviders = useMemo(
+    () => getSelectableProviders(providerSettings?.settings ?? DEFAULT_PROVIDER_SETTINGS).map((provider) => provider.id),
+    [providerSettings?.settings]
+  )
 
   const orderedProjectGroups = useMemo(() => {
     if (savedOrder.length === 0) return data.projectGroups
@@ -583,6 +590,7 @@ export function KannaSidebar({
         <div className="border-t border-border p-2">
           <ProviderUsageToolbar
             providerUsage={data.providerUsage}
+            visibleProviders={visibleProviders}
             onRefreshProviderUsage={onRefreshProviderUsage}
             onOpenProviderLogin={onOpenProviderLogin}
           />
