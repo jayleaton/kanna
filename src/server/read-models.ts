@@ -9,6 +9,7 @@ import type {
   DirectoryBrowserSnapshot,
   KannaStatus,
   LocalProjectsSnapshot,
+  ProviderSettingsSnapshot,
   ProviderUsageMap,
   SuggestedProjectFolder,
   SidebarChatRow,
@@ -19,7 +20,7 @@ import type {
 import type { ChatRecord, StoreState } from "./events"
 import { cloneTranscriptEntries } from "./events"
 import { getDefaultDirectoryRoot, resolveLocalPath } from "./paths"
-import { SERVER_PROVIDERS } from "./provider-catalog"
+import { getProviderInactiveMessage, getSelectableProviders } from "../shared/types"
 
 function deriveLastChatModel(chatId: string, state: StoreState): string | null {
   const entries = state.messagesByChatId.get(chatId) ?? []
@@ -221,7 +222,8 @@ export function deriveChatSnapshot(
   activeStatuses: Map<string, KannaStatus>,
   chatId: string,
   pendingTool: ChatPendingToolSnapshot | null = null,
-  usage: ChatUsageSnapshot | null = null
+  usage: ChatUsageSnapshot | null = null,
+  providerSettings?: ProviderSettingsSnapshot["settings"]
 ): ChatSnapshot | null {
   const chat = state.chatsById.get(chatId)
   if (!chat || chat.deletedAt) return null
@@ -239,12 +241,14 @@ export function deriveChatSnapshot(
     planMode: chat.planMode,
     sessionToken: chat.sessionToken,
     pendingTool,
+    inactiveProviderMessage: chat.provider ? getProviderInactiveMessage(chat.provider, providerSettings) : null,
   }
 
   return {
     runtime,
     messages: cloneTranscriptEntries(state.messagesByChatId.get(chat.id) ?? []),
     usage,
-    availableProviders: [...SERVER_PROVIDERS],
+    availableProviders: getSelectableProviders(providerSettings),
+    providerSettings,
   }
 }

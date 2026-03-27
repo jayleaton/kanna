@@ -38,6 +38,12 @@ export type ClaudeReasoningEffort = (typeof CLAUDE_REASONING_OPTIONS)[number]["i
 export type CodexReasoningEffort = (typeof CODEX_REASONING_OPTIONS)[number]["id"]
 export type ServiceTier = "fast"
 
+export const CLAUDE_CONTEXT_WINDOW_FALLBACKS: Record<string, number> = {
+  sonnet: 1_000_000,
+  opus: 1_000_000,
+  haiku: 200_000,
+}
+
 export const GEMINI_THINKING_OPTIONS = [
   { id: "off", label: "Off" },
   { id: "standard", label: "Standard" },
@@ -141,22 +147,6 @@ export type ModelOptions = Partial<{
   [K in AgentProvider]: Partial<ProviderModelOptionsByProvider[K]>
 }>
 
-export const DEFAULT_CLAUDE_MODEL_OPTIONS = {
-  reasoningEffort: "high",
-} as const satisfies ClaudeModelOptions
-
-export const DEFAULT_CODEX_MODEL_OPTIONS = {
-  reasoningEffort: "high",
-  fastMode: false,
-} as const satisfies CodexModelOptions
-
-export const DEFAULT_GEMINI_MODEL_OPTIONS = {
-  thinkingMode: "standard",
-} as const satisfies GeminiModelOptions
-
-export const DEFAULT_CURSOR_MODEL_OPTIONS = {
-} as const satisfies CursorModelOptions
-
 export function isClaudeReasoningEffort(value: unknown): value is ClaudeReasoningEffort {
   return CLAUDE_REASONING_OPTIONS.some((option) => option.id === value)
 }
@@ -172,19 +162,45 @@ export function isGeminiThinkingMode(value: unknown): value is GeminiThinkingMod
 export interface ProviderCatalogEntry {
   id: AgentProvider
   label: string
+  systemActive: boolean
   defaultModel: string
   defaultEffort?: string
+  defaultModelOptions: Record<string, unknown>
   supportsPlanMode: boolean
   models: ProviderModelOption[]
   efforts: ProviderEffortOption[]
+}
+
+export interface ProviderSettingsEntry {
+  active: boolean
+}
+
+export type ProviderSettingsMap = Record<AgentProvider, ProviderSettingsEntry>
+
+export interface ProviderSettingsSnapshot {
+  settings: ProviderSettingsMap
+  warning: string | null
+  filePathDisplay: string
+}
+
+export interface EffectiveProviderEntry extends ProviderCatalogEntry {
+  active: boolean
+  isSelectable: boolean
+  isUsageEnabled: boolean
+  isInactive: boolean
+  inactiveMessage: string | null
 }
 
 export const PROVIDERS: ProviderCatalogEntry[] = [
   {
     id: "claude",
     label: "Claude",
+    systemActive: true,
     defaultModel: "sonnet",
     defaultEffort: "high",
+    defaultModelOptions: {
+      reasoningEffort: "high",
+    } as const satisfies ClaudeModelOptions,
     supportsPlanMode: true,
     models: [
       { id: "opus", label: "Opus", supportsEffort: true },
@@ -196,7 +212,12 @@ export const PROVIDERS: ProviderCatalogEntry[] = [
   {
     id: "codex",
     label: "Codex",
+    systemActive: true,
     defaultModel: "gpt-5.4",
+    defaultModelOptions: {
+      reasoningEffort: "high",
+      fastMode: false,
+    } as const satisfies CodexModelOptions,
     supportsPlanMode: true,
     models: [
       { id: "gpt-5.4", label: "GPT-5.4", supportsEffort: false },
@@ -208,7 +229,11 @@ export const PROVIDERS: ProviderCatalogEntry[] = [
   {
     id: "gemini",
     label: "Gemini",
+    systemActive: false,
     defaultModel: "auto-gemini-2.5",
+    defaultModelOptions: {
+      thinkingMode: "standard",
+    } as const satisfies GeminiModelOptions,
     supportsPlanMode: true,
     models: [
       { id: "auto-gemini-3", label: "Auto (Gemini 3)", supportsEffort: false },
@@ -225,12 +250,30 @@ export const PROVIDERS: ProviderCatalogEntry[] = [
   {
     id: "cursor",
     label: "Cursor",
+    systemActive: true,
     defaultModel: DEFAULT_CURSOR_MODEL,
+    defaultModelOptions: {
+    } as const satisfies CursorModelOptions,
     supportsPlanMode: true,
     models: [...CURSOR_MODELS],
     efforts: [],
   },
 ]
+
+export const DEFAULT_PROVIDER_SETTINGS: ProviderSettingsMap = {
+  claude: {
+    active: true,
+  },
+  codex: {
+    active: true,
+  },
+  gemini: {
+    active: true,
+  },
+  cursor: {
+    active: true,
+  },
+}
 
 export function getProviderCatalog(provider: AgentProvider): ProviderCatalogEntry {
   const entry = PROVIDERS.find((candidate) => candidate.id === provider)
@@ -239,6 +282,81 @@ export function getProviderCatalog(provider: AgentProvider): ProviderCatalogEntr
   }
   return entry
 }
+
+export function getProviderSettingsEntry(
+  settings: Partial<Record<AgentProvider, Partial<ProviderSettingsEntry>>> | ProviderSettingsMap | null | undefined,
+  provider: AgentProvider
+): ProviderSettingsEntry {
+  const defaults = DEFAULT_PROVIDER_SETTINGS[provider]
+  const value = settings?.[provider]
+
+  return {
+    active: value?.active ?? defaults.active,
+  }
+}
+
+export function getProviderInactiveMessage(
+  provider: AgentProvider,
+  settings: Partial<Record<AgentProvider, Partial<ProviderSettingsEntry>>> | ProviderSettingsMap | null | undefined
+): string | null {
+  const catalog = getProviderCatalog(provider)
+  const entry = getProviderSettingsEntry(settings, provider)
+  if (catalog.systemActive && entry.active) return null
+  return `Provider ${catalog.label} is currently not active.`
+}
+
+export function isProviderSelectable(
+  provider: AgentProvider,
+  settings: Partial<Record<AgentProvider, Partial<ProviderSettingsEntry>>> | ProviderSettingsMap | null | undefined
+): boolean {
+  const catalog = getProviderCatalog(provider)
+  const entry = getProviderSettingsEntry(settings, provider)
+  return catalog.systemActive && entry.active
+}
+
+export function getEffectiveProviders(
+  settings: Partial<Record<AgentProvider, Partial<ProviderSettingsEntry>>> | ProviderSettingsMap | null | undefined
+): EffectiveProviderEntry[] {
+  return PROVIDERS.map((provider) => {
+    const providerSettings = getProviderSettingsEntry(settings, provider.id)
+    const isSelectable = provider.systemActive && providerSettings.active
+
+    return {
+      ...provider,
+      active: providerSettings.active,
+      isSelectable,
+      isUsageEnabled: isSelectable,
+      isInactive: !isSelectable,
+      inactiveMessage: getProviderInactiveMessage(provider.id, settings),
+    }
+  })
+}
+
+export function getSelectableProviders(
+  settings: Partial<Record<AgentProvider, Partial<ProviderSettingsEntry>>> | ProviderSettingsMap | null | undefined
+): ProviderCatalogEntry[] {
+  return getEffectiveProviders(settings)
+    .filter((provider) => provider.isSelectable)
+    .map(({ active: _active, isSelectable: _isSelectable, isUsageEnabled: _isUsageEnabled, isInactive: _isInactive, inactiveMessage: _inactiveMessage, ...provider }) => provider)
+}
+
+export function getProviderDefaultModelOptions<T extends AgentProvider>(
+  provider: T
+): ProviderModelOptionsByProvider[T] {
+  return getProviderCatalog(provider).defaultModelOptions as unknown as ProviderModelOptionsByProvider[T]
+}
+
+export const DEFAULT_CLAUDE_MODEL_OPTIONS =
+  getProviderDefaultModelOptions("claude") as ClaudeModelOptions
+
+export const DEFAULT_CODEX_MODEL_OPTIONS =
+  getProviderDefaultModelOptions("codex") as CodexModelOptions
+
+export const DEFAULT_GEMINI_MODEL_OPTIONS =
+  getProviderDefaultModelOptions("gemini") as GeminiModelOptions
+
+export const DEFAULT_CURSOR_MODEL_OPTIONS =
+  getProviderDefaultModelOptions("cursor") as CursorModelOptions
 
 export type KannaStatus =
   | "idle"
@@ -819,6 +937,7 @@ export interface ChatRuntime {
   planMode: boolean
   sessionToken: string | null
   pendingTool?: ChatPendingToolSnapshot | null
+  inactiveProviderMessage?: string | null
 }
 
 export type ChatUsageWarning =
@@ -850,6 +969,7 @@ export interface ChatSnapshot {
   messages: TranscriptEntry[]
   usage?: ChatUsageSnapshot | null
   availableProviders: ProviderCatalogEntry[]
+  providerSettings?: ProviderSettingsSnapshot["settings"]
 }
 
 export interface KannaSnapshot {

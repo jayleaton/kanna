@@ -132,6 +132,7 @@ function KannaLayout() {
         onOpenProviderLogin={(provider) => {
           void state.handleOpenProviderLogin(provider)
         }}
+        providerSettings={state.providerSettings}
         startingLocalPath={state.startingLocalPath}
         updateSnapshot={state.updateSnapshot}
         onInstallUpdate={() => {

@@ -6,6 +6,7 @@ import { ATTACHMENTS_ROUTE_PREFIX, resolveAttachmentPath } from "./attachments"
 import { discoverProjects, type DiscoveredProject } from "./discovery"
 import { GitManager } from "./git-manager"
 import { KeybindingsManager } from "./keybindings"
+import { ProviderSettingsManager } from "./provider-settings"
 import { ThemeSettingsManager } from "./theme-settings"
 import { getMachineDisplayName } from "./machine-name"
 import { listProjectDirectories } from "./paths"
@@ -58,6 +59,8 @@ export async function startKannaServer(options: StartKannaServerOptions = {}) {
   const git = new GitManager()
   const keybindings = new KeybindingsManager()
   await keybindings.initialize()
+  const providerSettings = new ProviderSettingsManager()
+  await providerSettings.initialize()
   const themeSettings = new ThemeSettingsManager()
   await themeSettings.initialize()
   const updateManager = options.update
@@ -81,6 +84,7 @@ export async function startKannaServer(options: StartKannaServerOptions = {}) {
     terminals,
     git,
     keybindings,
+    providerSettings,
     themeSettings,
     refreshDiscovery,
     getDiscoveredProjects: () => discoveredProjects,
@@ -166,6 +170,7 @@ export async function startKannaServer(options: StartKannaServerOptions = {}) {
     }
     router.dispose()
     keybindings.dispose()
+    providerSettings.dispose()
     themeSettings.dispose()
     terminals.closeAll()
     await store.compact()

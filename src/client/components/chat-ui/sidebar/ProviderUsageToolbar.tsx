@@ -1,23 +1,20 @@
 import { useState } from "react"
 import { ChevronDown, ChevronRight, RefreshCw } from "lucide-react"
 import { toast } from "sonner"
-import type { AgentProvider, ProviderUsageEntry, ProviderUsageMap } from "../../../../shared/types"
+import { PROVIDERS, type AgentProvider, type ProviderUsageEntry, type ProviderUsageMap } from "../../../../shared/types"
 import { PROVIDER_ICONS } from "../ChatPreferenceControls"
 import { Tooltip, TooltipContent, TooltipTrigger } from "../../ui/tooltip"
 import { cn } from "../../../lib/utils"
 
 const STORAGE_KEY = "kanna:provider-usage-collapsed"
 const MODE_STORAGE_KEY = "kanna:provider-usage-mode"
-const ALL_PROVIDERS: AgentProvider[] = ["claude", "codex", "gemini", "cursor"]
+const ALL_PROVIDERS = PROVIDERS.map((provider) => provider.id) as AgentProvider[]
 const WEEKLY_PROVIDERS: AgentProvider[] = ["claude", "codex"]
 type ProviderUsageMode = "session" | "weekly"
 
-const PROVIDER_LABELS: Record<AgentProvider, string> = {
-  claude: "Claude",
-  codex: "Codex",
-  gemini: "Gemini",
-  cursor: "Cursor",
-}
+const PROVIDER_LABELS = Object.fromEntries(
+  PROVIDERS.map((provider) => [provider.id, provider.label])
+) as Record<AgentProvider, string>
 
 function barColor(percent: number | null): string {
   if (percent === null) return "bg-muted"
@@ -228,12 +225,14 @@ function ProviderUsageRow(args: {
 
 interface ProviderUsageToolbarProps {
   providerUsage?: ProviderUsageMap
+  visibleProviders?: AgentProvider[]
   onRefreshProviderUsage?: (provider?: AgentProvider) => Promise<void>
   onOpenProviderLogin?: (provider: "cursor") => void
 }
 
 export function ProviderUsageToolbar({
   providerUsage,
+  visibleProviders = ALL_PROVIDERS,
   onRefreshProviderUsage,
   onOpenProviderLogin,
 }: ProviderUsageToolbarProps) {
@@ -305,7 +304,7 @@ export function ProviderUsageToolbar({
         )}
       </div>
 
-      {!collapsed && (mode === "weekly" ? WEEKLY_PROVIDERS : ALL_PROVIDERS).flatMap((provider) => {
+      {!collapsed && (mode === "weekly" ? WEEKLY_PROVIDERS : visibleProviders).flatMap((provider) => {
         const entry: ProviderUsageEntry = providerUsage?.[provider] ?? {
           provider,
           sessionLimitUsedPercent: null,

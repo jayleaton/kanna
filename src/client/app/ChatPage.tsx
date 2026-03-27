@@ -322,6 +322,11 @@ export function ChatPage() {
           onScroll={state.updateScrollState}
           className="flex-1 min-h-0 px-4 scroll-pt-[72px]"
         >
+          {state.runtime?.inactiveProviderMessage ? (
+            <div className="mx-auto mt-[72px] max-w-[800px] rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-200">
+              This thread uses {state.runtime.provider}, which is currently inactive. {state.runtime.inactiveProviderMessage}
+            </div>
+          ) : null}
           {state.messages.length === 0 ? <div style={{ height: state.transcriptPaddingBottom }} aria-hidden="true" /> : null}
           {state.messages.length > 0 ? (
             <>
@@ -412,7 +417,7 @@ export function ChatPage() {
             onCancel={() => {
               void state.handleCancel()
             }}
-            disabled={!state.hasSelectedProject || state.runtime?.status === "waiting_for_user"}
+            disabled={!state.hasSelectedProject || state.runtime?.status === "waiting_for_user" || Boolean(state.runtime?.inactiveProviderMessage)}
             canCancel={state.canCancel}
             chatId={state.activeChatId}
             activeProvider={state.runtime?.provider ?? null}

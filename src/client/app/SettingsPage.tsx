@@ -15,7 +15,17 @@ import Markdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { useNavigate, useOutletContext, useParams } from "react-router-dom"
 import { getKeybindingsFilePathDisplay, SDK_CLIENT_APP } from "../../shared/branding"
-import { DEFAULT_KEYBINDINGS, PROVIDERS, type AgentProvider, type KeybindingAction, type UpdateSnapshot } from "../../shared/types"
+import {
+  DEFAULT_KEYBINDINGS,
+  DEFAULT_PROVIDER_SETTINGS,
+  getProviderCatalog,
+  getSelectableProviders,
+  PROVIDERS,
+  type AgentProvider,
+  type KeybindingAction,
+  type ProviderSettingsSnapshot,
+  type UpdateSnapshot,
+} from "../../shared/types"
 import { markdownComponents } from "../components/messages/shared"
 import { ChatPreferenceControls } from "../components/chat-ui/ChatPreferenceControls"
 import { buttonVariants } from "../components/ui/button"
@@ -140,6 +150,13 @@ export function getGeneralHeaderAction(updateSnapshot: UpdateSnapshot | null) {
     spinning: isChecking,
     variant: "outline" as const,
   }
+}
+
+function providerPolicyDescription(snapshot: ProviderSettingsSnapshot | null, provider: AgentProvider) {
+  const catalog = getProviderCatalog(provider)
+  const entry = snapshot?.settings[provider] ?? DEFAULT_PROVIDER_SETTINGS[provider]
+  if (!catalog.systemActive) return "Inactive by server policy."
+  return entry.active ? "Active." : "Inactive."
 }
 
 export function getSettingsCloseTarget(historyState: unknown): "back" | "home" {
@@ -413,6 +430,7 @@ export function SettingsPage() {
   const setEditorPreset = useTerminalPreferencesStore((store) => store.setEditorPreset)
   const setEditorCommandTemplate = useTerminalPreferencesStore((store) => store.setEditorCommandTemplate)
   const keybindings = state.keybindings
+  const providerSettings = state.providerSettings
   const defaultProvider = useChatPreferencesStore((store) => store.defaultProvider)
   const providerDefaults = useChatPreferencesStore((store) => store.providerDefaults)
   const showProviderIconsInSideTray = useChatPreferencesStore((store) => store.showProviderIconsInSideTray)
@@ -449,6 +467,14 @@ export function SettingsPage() {
   const [backgroundBlurDraft, setBackgroundBlurDraft] = useState(String(backgroundBlur))
   const [keybindingDrafts, setKeybindingDrafts] = useState<Record<string, string>>({})
   const [keybindingsError, setKeybindingsError] = useState<string | null>(null)
+  const [providerSettingsError, setProviderSettingsError] = useState<string | null>(null)
+  const selectableProviders = useMemo(
+    () => getSelectableProviders(providerSettings?.settings ?? DEFAULT_PROVIDER_SETTINGS),
+    [providerSettings?.settings]
+  )
+  const defaultProviderSelectValue = defaultProvider === "last_used" || selectableProviders.some((provider) => provider.id === defaultProvider)
+    ? defaultProvider
+    : "last_used"
   const [systemBackgrounds, setSystemBackgrounds] = useState<{ id: string, name: string, url: string }[]>([])
   const updateSnapshot = state.updateSnapshot
 
@@ -642,6 +668,20 @@ export function SettingsPage() {
       })
     } catch (error) {
       console.error("Failed to save theme settings:", error)
+    }
+  }
+
+  async function commitProviderSettings(
+    settings: ProviderSettingsSnapshot["settings"]
+  ) {
+    try {
+      setProviderSettingsError(null)
+      await state.socket.command({
+        type: "settings.writeProviderSettings",
+        settings,
+      })
+    } catch (error) {
+      setProviderSettingsError(error instanceof Error ? error.message : "Unable to save provider settings.")
     }
   }
 
@@ -1249,7 +1289,7 @@ export function SettingsPage() {
                       bordered={false}
                     >
                       <Select
-                        value={defaultProvider}
+                        value={defaultProviderSelectValue}
                         onValueChange={(value) => setDefaultProvider(value as "last_used" | AgentProvider)}
                       >
                         <SelectTrigger className="min-w-[180px]">
@@ -1260,7 +1300,7 @@ export function SettingsPage() {
                             <SelectItem value="last_used">
                               Last Used
                             </SelectItem>
-                            {PROVIDERS.map((provider) => (
+                            {selectableProviders.map((provider) => (
                               <SelectItem key={provider.id} value={provider.id}>
                                 {provider.label}
                               </SelectItem>
@@ -1270,15 +1310,44 @@ export function SettingsPage() {
                       </Select>
                     </SettingsRow>
 
+                    {providerSettingsError ? (
+                      <div className="border-t border-border px-0 py-3 text-sm text-destructive">
+                        {providerSettingsError}
+                      </div>
+                    ) : null}
+
                     <SettingsRow
                       title="Claude Code Defaults"
-                      description="Saved defaults when using Claude Code."
+                      description={`Saved defaults when using Claude Code. ${providerPolicyDescription(providerSettings, "claude")}`}
                       alignStart
                     >
-                      <div className="max-w-[420px]">
+                      <div className={cn("max-w-[420px]", !getProviderCatalog("claude").systemActive && "opacity-50")}>
+                        <div className="mb-3 flex flex-wrap items-center gap-2">
+                          <Select
+                            value={(providerSettings?.settings.claude ?? DEFAULT_PROVIDER_SETTINGS.claude).active ? "active" : "inactive"}
+                            onValueChange={(value) => {
+                              void commitProviderSettings({
+                                ...(providerSettings?.settings ?? DEFAULT_PROVIDER_SETTINGS),
+                                claude: {
+                                  ...(providerSettings?.settings.claude ?? DEFAULT_PROVIDER_SETTINGS.claude),
+                                  active: value === "active",
+                                },
+                              })
+                            }}
+                          >
+                            <SelectTrigger className="min-w-[140px]" disabled={!getProviderCatalog("claude").systemActive}>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="active">Active</SelectItem>
+                              <SelectItem value="inactive">Inactive</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
                         <ChatPreferenceControls
                           availableProviders={PROVIDERS}
                           selectedProvider="claude"
+                          disabled={!getProviderCatalog("claude").systemActive}
                           showProviderPicker={false}
                           providerLocked
                           model={providerDefaults.claude.model}
@@ -1302,13 +1371,34 @@ export function SettingsPage() {
 
                     <SettingsRow
                       title="Codex Defaults"
-                      description="Saved defaults when using Codex."
+                      description={`Saved defaults when using Codex. ${providerPolicyDescription(providerSettings, "codex")}`}
                       alignStart
                     >
-                      <div className="max-w-[420px]">
+                      <div className={cn("max-w-[420px]", !getProviderCatalog("codex").systemActive && "opacity-50")}>
+                        <div className="mb-3 flex flex-wrap items-center gap-2">
+                          <Select
+                            value={(providerSettings?.settings.codex ?? DEFAULT_PROVIDER_SETTINGS.codex).active ? "active" : "inactive"}
+                            onValueChange={(value) => {
+                              void commitProviderSettings({
+                                ...(providerSettings?.settings ?? DEFAULT_PROVIDER_SETTINGS),
+                                codex: {
+                                  ...(providerSettings?.settings.codex ?? DEFAULT_PROVIDER_SETTINGS.codex),
+                                  active: value === "active",
+                                },
+                              })
+                            }}
+                          >
+                            <SelectTrigger className="min-w-[140px]" disabled={!getProviderCatalog("codex").systemActive}><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="active">Active</SelectItem>
+                              <SelectItem value="inactive">Inactive</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
                         <ChatPreferenceControls
                           availableProviders={PROVIDERS}
                           selectedProvider="codex"
+                          disabled={!getProviderCatalog("codex").systemActive}
                           showProviderPicker={false}
                           providerLocked
                           model={providerDefaults.codex.model}
@@ -1334,13 +1424,34 @@ export function SettingsPage() {
 
                     <SettingsRow
                       title="Gemini Defaults"
-                      description="Saved defaults when using Gemini."
+                      description={`Saved defaults when using Gemini. ${providerPolicyDescription(providerSettings, "gemini")}`}
                       alignStart
                     >
-                      <div className="max-w-[420px]">
+                      <div className={cn("max-w-[420px]", !getProviderCatalog("gemini").systemActive && "opacity-50")}>
+                        <div className="mb-3 flex flex-wrap items-center gap-2">
+                          <Select
+                            value={(providerSettings?.settings.gemini ?? DEFAULT_PROVIDER_SETTINGS.gemini).active ? "active" : "inactive"}
+                            onValueChange={(value) => {
+                              void commitProviderSettings({
+                                ...(providerSettings?.settings ?? DEFAULT_PROVIDER_SETTINGS),
+                                gemini: {
+                                  ...(providerSettings?.settings.gemini ?? DEFAULT_PROVIDER_SETTINGS.gemini),
+                                  active: value === "active",
+                                },
+                              })
+                            }}
+                          >
+                            <SelectTrigger className="min-w-[140px]" disabled={!getProviderCatalog("gemini").systemActive}><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="active">Active</SelectItem>
+                              <SelectItem value="inactive">Inactive</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
                         <ChatPreferenceControls
                           availableProviders={PROVIDERS}
                           selectedProvider="gemini"
+                          disabled={!getProviderCatalog("gemini").systemActive}
                           showProviderPicker={false}
                           providerLocked
                           model={providerDefaults.gemini.model}
@@ -1364,13 +1475,34 @@ export function SettingsPage() {
 
                     <SettingsRow
                       title="Cursor Defaults"
-                      description="Saved defaults when using Cursor."
+                      description={`Saved defaults when using Cursor. ${providerPolicyDescription(providerSettings, "cursor")}`}
                       alignStart
                     >
-                      <div className="max-w-[420px]">
+                      <div className={cn("max-w-[420px]", !getProviderCatalog("cursor").systemActive && "opacity-50")}>
+                        <div className="mb-3 flex flex-wrap items-center gap-2">
+                          <Select
+                            value={(providerSettings?.settings.cursor ?? DEFAULT_PROVIDER_SETTINGS.cursor).active ? "active" : "inactive"}
+                            onValueChange={(value) => {
+                              void commitProviderSettings({
+                                ...(providerSettings?.settings ?? DEFAULT_PROVIDER_SETTINGS),
+                                cursor: {
+                                  ...(providerSettings?.settings.cursor ?? DEFAULT_PROVIDER_SETTINGS.cursor),
+                                  active: value === "active",
+                                },
+                              })
+                            }}
+                          >
+                            <SelectTrigger className="min-w-[140px]" disabled={!getProviderCatalog("cursor").systemActive}><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="active">Active</SelectItem>
+                              <SelectItem value="inactive">Inactive</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
                         <ChatPreferenceControls
                           availableProviders={PROVIDERS}
                           selectedProvider="cursor"
+                          disabled={!getProviderCatalog("cursor").systemActive}
                           showProviderPicker={false}
                           providerLocked
                           model={providerDefaults.cursor.model}

@@ -1,15 +1,12 @@
 import { create } from "zustand"
 import { persist } from "zustand/middleware"
 import {
-  DEFAULT_CLAUDE_MODEL_OPTIONS,
-  DEFAULT_CODEX_MODEL_OPTIONS,
-  DEFAULT_CURSOR_MODEL,
-  DEFAULT_CURSOR_MODEL_OPTIONS,
-  DEFAULT_GEMINI_MODEL_OPTIONS,
-  normalizeCursorModelId,
+  getProviderCatalog,
+  getProviderDefaultModelOptions,
   isClaudeReasoningEffort,
   isCodexReasoningEffort,
   isGeminiThinkingMode,
+  normalizeCursorModelId,
   type AgentProvider,
   type ClaudeModelOptions,
   type CodexModelOptions,
@@ -82,13 +79,14 @@ function normalizeClaudePreference(value?: {
   modelOptions?: Partial<ClaudeModelOptions>
   planMode?: boolean
 }): ProviderPreference<ClaudeModelOptions> {
+  const defaultOptions = getProviderDefaultModelOptions("claude")
   const reasoningEffort = value?.modelOptions?.reasoningEffort
   const normalizedEffort = isClaudeReasoningEffort(reasoningEffort)
     ? reasoningEffort
     : isClaudeReasoningEffort(value?.effort)
       ? value.effort
-      : DEFAULT_CLAUDE_MODEL_OPTIONS.reasoningEffort
-  const model = value?.model ?? "opus"
+      : defaultOptions.reasoningEffort
+  const model = value?.model ?? getProviderCatalog("claude").defaultModel
 
   return {
     model,
@@ -105,18 +103,19 @@ function normalizeCodexPreference(value?: {
   modelOptions?: Partial<CodexModelOptions>
   planMode?: boolean
 }): ProviderPreference<CodexModelOptions> {
+  const defaultOptions = getProviderDefaultModelOptions("codex")
   const reasoningEffort = value?.modelOptions?.reasoningEffort
   return {
-    model: normalizeCodexModel(value?.model),
+    model: normalizeCodexModel(value?.model ?? getProviderCatalog("codex").defaultModel),
     modelOptions: {
       reasoningEffort: isCodexReasoningEffort(reasoningEffort)
         ? reasoningEffort
         : isCodexReasoningEffort(value?.effort)
           ? value.effort
-          : DEFAULT_CODEX_MODEL_OPTIONS.reasoningEffort,
+          : defaultOptions.reasoningEffort,
       fastMode: typeof value?.modelOptions?.fastMode === "boolean"
         ? value.modelOptions.fastMode
-        : DEFAULT_CODEX_MODEL_OPTIONS.fastMode,
+        : defaultOptions.fastMode,
     },
     planMode: Boolean(value?.planMode),
   }
@@ -127,12 +126,13 @@ function normalizeGeminiPreference(value?: {
   modelOptions?: Partial<GeminiModelOptions>
   planMode?: boolean
 }): ProviderPreference<GeminiModelOptions> {
+  const defaultOptions = getProviderDefaultModelOptions("gemini")
   return {
-    model: value?.model ?? "auto-gemini-2.5",
+    model: value?.model ?? getProviderCatalog("gemini").defaultModel,
     modelOptions: {
       thinkingMode: isGeminiThinkingMode(value?.modelOptions?.thinkingMode)
         ? value.modelOptions.thinkingMode
-        : DEFAULT_GEMINI_MODEL_OPTIONS.thinkingMode,
+        : defaultOptions.thinkingMode,
     },
     planMode: Boolean(value?.planMode),
   }
@@ -145,8 +145,8 @@ function normalizeCursorPreference(value?: {
 }): ProviderPreference<CursorModelOptions> {
   void value?.modelOptions
   return {
-    model: normalizeCursorModelId(value?.model ?? DEFAULT_CURSOR_MODEL),
-    modelOptions: { ...DEFAULT_CURSOR_MODEL_OPTIONS },
+    model: normalizeCursorModelId(value?.model ?? getProviderCatalog("cursor").defaultModel),
+    modelOptions: { ...getProviderDefaultModelOptions("cursor") },
     planMode: Boolean(value?.planMode),
   }
 }
@@ -154,23 +154,23 @@ function normalizeCursorPreference(value?: {
 function createDefaultProviderDefaults(): ChatProviderPreferences {
   return {
     claude: {
-      model: "opus",
-      modelOptions: { ...DEFAULT_CLAUDE_MODEL_OPTIONS },
+      model: getProviderCatalog("claude").defaultModel,
+      modelOptions: { ...getProviderDefaultModelOptions("claude") },
       planMode: false,
     },
     codex: {
-      model: "gpt-5.4",
-      modelOptions: { ...DEFAULT_CODEX_MODEL_OPTIONS },
+      model: getProviderCatalog("codex").defaultModel,
+      modelOptions: { ...getProviderDefaultModelOptions("codex") },
       planMode: false,
     },
     gemini: {
-      model: "auto-gemini-2.5",
-      modelOptions: { ...DEFAULT_GEMINI_MODEL_OPTIONS },
+      model: getProviderCatalog("gemini").defaultModel,
+      modelOptions: { ...getProviderDefaultModelOptions("gemini") },
       planMode: false,
     },
     cursor: {
-      model: DEFAULT_CURSOR_MODEL,
-      modelOptions: { ...DEFAULT_CURSOR_MODEL_OPTIONS },
+      model: getProviderCatalog("cursor").defaultModel,
+      modelOptions: { ...getProviderDefaultModelOptions("cursor") },
       planMode: false,
     },
   }
@@ -388,8 +388,8 @@ export const useChatPreferencesStore = create<ChatPreferencesState>()(
       showProviderIconsInSideTray: false,
       composerState: {
         provider: "claude",
-        model: "opus",
-        modelOptions: { ...DEFAULT_CLAUDE_MODEL_OPTIONS },
+        model: getProviderCatalog("claude").defaultModel,
+        modelOptions: { ...getProviderDefaultModelOptions("claude") },
         planMode: false,
       },
       setDefaultProvider: (defaultProvider) => set({ defaultProvider }),

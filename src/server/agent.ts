@@ -28,7 +28,8 @@ import {
   normalizeGeminiModelOptions,
   normalizeServerModel,
 } from "./provider-catalog"
-import { createClaudeRateLimitSnapshot, deriveProviderUsage } from "./usage"
+import { createClaudeRateLimitSnapshot } from "./usage/claude-usage"
+import { deriveProviderUsage } from "./usage/provider-usage"
 import type { ProviderUsageMap } from "../shared/types"
 
 const CLAUDE_TOOLSET = [
