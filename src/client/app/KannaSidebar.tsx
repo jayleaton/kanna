@@ -248,6 +248,7 @@ export function KannaSidebar({
                 navigate("/")
                 onClose()
               }}
+              className="size-10 rounded-lg"
               title="New project"
             >
               <Plus className="size-4" />
