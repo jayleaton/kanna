@@ -6,8 +6,9 @@ import { Button } from "../components/ui/button"
 import { cn } from "../lib/utils"
 import { ChatRow } from "../components/chat-ui/sidebar/ChatRow"
 import { LocalProjectsSection } from "../components/chat-ui/sidebar/LocalProjectsSection"
+import { ProviderUsageToolbar } from "../components/chat-ui/sidebar/ProviderUsageToolbar"
 import { useChatPreferencesStore } from "../stores/chatPreferencesStore"
-import type { FeatureBrowserState, FeatureStage, SidebarData, SidebarChatRow, SidebarProjectGroup, UpdateSnapshot } from "../../shared/types"
+import type { AgentProvider, FeatureBrowserState, FeatureStage, SidebarData, SidebarChatRow, SidebarProjectGroup, UpdateSnapshot } from "../../shared/types"
 import type { SocketStatus } from "./socket"
 import { useProjectGroupOrderStore } from "../stores/projectGroupOrderStore"
 import { clampLeftSidebarWidth } from "../stores/leftSidebarStore"
@@ -44,6 +45,8 @@ interface KannaSidebarProps {
   kanbanStatusesEnabled: boolean
   onDeleteChat: (chat: SidebarChatRow) => void
   onRemoveProject: (projectId: string) => void
+  onRefreshProviderUsage: (provider?: AgentProvider) => Promise<void>
+  onOpenProviderLogin: (provider: "cursor") => void
   startingLocalPath?: string | null
   updateSnapshot: UpdateSnapshot | null
   onInstallUpdate: () => void
@@ -98,6 +101,8 @@ export function KannaSidebar({
   kanbanStatusesEnabled,
   onDeleteChat,
   onRemoveProject,
+  onRefreshProviderUsage,
+  onOpenProviderLogin,
   startingLocalPath,
   updateSnapshot,
   onInstallUpdate,
@@ -576,6 +581,11 @@ export function KannaSidebar({
         </div>
 
         <div className="border-t border-border p-2">
+          <ProviderUsageToolbar
+            providerUsage={data.providerUsage}
+            onRefreshProviderUsage={onRefreshProviderUsage}
+            onOpenProviderLogin={onOpenProviderLogin}
+          />
             <button
             type="button"
             onClick={() => {

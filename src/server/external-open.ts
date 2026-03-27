@@ -6,6 +6,7 @@ import { resolveLocalPath } from "./paths"
 import { canOpenMacApp, hasCommand, spawnDetached } from "./process-utils"
 
 type OpenExternalCommand = Extract<ClientCommand, { type: "system.openExternal" }>
+type OpenUrlCommand = Extract<ClientCommand, { type: "system.openUrl" }>
 
 interface CommandSpec {
   command: string
@@ -92,6 +93,22 @@ export async function openExternal(command: OpenExternalCommand) {
     }
     spawnDetached("xdg-open", [resolvedPath])
   }
+}
+
+export async function openUrl(command: OpenUrlCommand) {
+  const platform = process.platform
+
+  if (platform === "darwin") {
+    spawnDetached("open", [command.url])
+    return
+  }
+
+  if (platform === "win32") {
+    spawnDetached("cmd", ["/c", "start", "", command.url])
+    return
+  }
+
+  spawnDetached("xdg-open", [command.url])
 }
 
 export function buildEditorCommand(args: {

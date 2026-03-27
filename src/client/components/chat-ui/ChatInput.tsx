@@ -512,7 +512,7 @@ const ChatInputInner = forwardRef<HTMLTextAreaElement, Props>(function ChatInput
   }
   return (
     <div
-      className={cn("p-3 pt-0 md:pb-2 flex flex-col items-center", isStandalone && "px-5")}
+      className={cn("p-3 pt-0 px-2 md:px-3 md:pb-2 flex flex-col items-center", isStandalone && "px-3")}
       style={isStandalone ? { paddingBottom: "var(--app-composer-bottom-padding)" } : undefined}
     >
       <div className="flex flex-col items-center relative z-10 w-full max-w-[840px] mx-auto">
@@ -590,7 +590,7 @@ const ChatInputInner = forwardRef<HTMLTextAreaElement, Props>(function ChatInput
             type="button"
             variant="ghost"
             size="icon"
-            className="mb-0.75 h-10 w-10 shrink-0 rounded-full"
+            className="mt-1.5 md:mt-0 h-10 w-10 shrink-0 rounded-full"
             disabled={disabled || canCancel}
             onClick={() => fileInputRef.current?.click()}
           >

@@ -9,6 +9,7 @@ import type {
   DirectoryBrowserSnapshot,
   KannaStatus,
   LocalProjectsSnapshot,
+  ProviderUsageMap,
   SuggestedProjectFolder,
   SidebarChatRow,
   SidebarData,
@@ -39,7 +40,8 @@ export function deriveStatus(chat: ChatRecord, activeStatus?: KannaStatus): Kann
 
 export function deriveSidebarData(
   state: StoreState,
-  activeStatuses: Map<string, KannaStatus>
+  activeStatuses: Map<string, KannaStatus>,
+  providerUsage?: ProviderUsageMap
 ): SidebarData {
   const projects = [...state.projectsById.values()]
     .filter((project) => !project.deletedAt && !state.hiddenProjectKeys.has(project.repoKey))
@@ -95,7 +97,7 @@ export function deriveSidebarData(
     }
   })
 
-  return { projectGroups }
+  return { projectGroups, providerUsage }
 }
 
 export function deriveLocalProjectsSnapshot(

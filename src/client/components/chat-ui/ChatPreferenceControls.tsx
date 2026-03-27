@@ -292,7 +292,7 @@ export function ChatPreferenceControls({
   }, [selectedProvider])
 
   return (
-    <div className={cn("max-w-full overflow-x-auto", className)}>
+    <div className={cn("max-w-full overflow-x-auto scrollbar-hide", className)}>
       <div className="flex w-max items-center justify-center gap-0.5 mx-auto">
         {showProviderPicker ? (
           <InputPopover

@@ -1,6 +1,8 @@
 import process from "node:process"
 import { hostname as getHostname } from "node:os"
-import { spawn, type ChildProcess } from "node:child_process"
+import { spawn, spawnSync, type ChildProcess } from "node:child_process"
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { join } from "node:path"
 import { LOG_PREFIX } from "../src/shared/branding"
 import { resolveDevPorts, stripPortArg } from "../src/shared/dev-ports"
 
@@ -10,6 +12,7 @@ const serverArgs = stripPortArg(forwardedArgs)
 const { clientPort, serverPort } = resolveDevPorts(forwardedArgs)
 const bunBin = process.execPath
 const localHostname = getHostname()
+const serverPidFile = join(cwd, ".kanna", `dev-server-${serverPort}.pid`)
 
 function getDevHostConfig(args: string[]) {
   let backendTargetHost = "127.0.0.1"
@@ -63,6 +66,127 @@ function spawnLabeledProcess(label: string, args: string[]) {
   return child
 }
 
+function stopChild(child: ChildProcess) {
+  if (child.killed || child.exitCode !== null) return
+  child.kill("SIGTERM")
+}
+
+function removeServerPidFile() {
+  if (!existsSync(serverPidFile)) return
+  rmSync(serverPidFile, { force: true })
+}
+
+function getCommandForPid(pid: number) {
+  const result = spawnSync("ps", ["-p", String(pid), "-o", "command="], {
+    cwd,
+    encoding: "utf8",
+  })
+
+  if (result.status !== 0) {
+    return null
+  }
+
+  const command = result.stdout.trim()
+  return command.length > 0 ? command : null
+}
+
+function isManagedDevServerCommand(command: string | null) {
+  return command?.includes("./scripts/dev-server.ts") ?? false
+}
+
+async function waitForPidExit(pid: number, timeoutMs = 5_000) {
+  const startedAt = Date.now()
+
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      process.kill(pid, 0)
+      await Bun.sleep(100)
+    } catch {
+      return true
+    }
+  }
+
+  return false
+}
+
+async function tryCleanupStaleDevServerPid() {
+  if (!existsSync(serverPidFile)) return
+
+  const rawPid = readFileSync(serverPidFile, "utf8").trim()
+  const pid = Number(rawPid)
+
+  if (!Number.isInteger(pid) || pid <= 0) {
+    removeServerPidFile()
+    return
+  }
+
+  const command = getCommandForPid(pid)
+  if (!command) {
+    removeServerPidFile()
+    return
+  }
+
+  if (!isManagedDevServerCommand(command)) {
+    removeServerPidFile()
+    return
+  }
+
+  console.log(`${LOG_PREFIX.replace("]", ":dev]")} stopping stale dev server pid ${String(pid)}`)
+  try {
+    process.kill(pid, "SIGTERM")
+    if (!(await waitForPidExit(pid))) {
+      process.kill(pid, "SIGKILL")
+      await waitForPidExit(pid, 1_000)
+    }
+  } catch {
+    // The process may have exited between detection and cleanup.
+  }
+
+  removeServerPidFile()
+}
+
+function findListeningPidOnPort(port: number) {
+  const result = spawnSync("lsof", ["-tiTCP:" + String(port), "-sTCP:LISTEN"], {
+    cwd,
+    encoding: "utf8",
+  })
+
+  if (result.status !== 0) {
+    return null
+  }
+
+  const rawPid = result.stdout.trim().split("\n")[0]
+  const pid = Number(rawPid)
+  return Number.isInteger(pid) && pid > 0 ? pid : null
+}
+
+async function ensureServerPortAvailable(port: number) {
+  await tryCleanupStaleDevServerPid()
+
+  const pid = findListeningPidOnPort(port)
+  if (!pid) return
+
+  const command = getCommandForPid(pid)
+  if (isManagedDevServerCommand(command)) {
+    console.log(`${LOG_PREFIX.replace("]", ":dev]")} reclaiming port ${String(port)} from stale dev server pid ${String(pid)}`)
+    try {
+      process.kill(pid, "SIGTERM")
+      if (!(await waitForPidExit(pid))) {
+        process.kill(pid, "SIGKILL")
+        await waitForPidExit(pid, 1_000)
+      }
+    } catch {
+      // If the process is already gone, the upcoming spawn will succeed.
+    }
+    return
+  }
+
+  const details = command ? ` (${command})` : ""
+  throw new Error(`Port ${String(port)} is already in use by pid ${String(pid)}${details}`)
+}
+
+await ensureServerPortAvailable(serverPort)
+
 const server = spawn(bunBin, ["run", "./scripts/dev-server.ts", "--no-open", "--port", String(serverPort), "--strict-port", ...serverArgs], {
   cwd,
   stdio: "inherit",
@@ -70,16 +194,15 @@ const server = spawn(bunBin, ["run", "./scripts/dev-server.ts", "--no-open", "--
 })
 
 server.on("spawn", () => {
+  if (server.pid) {
+    mkdirSync(join(cwd, ".kanna"), { recursive: true })
+    writeFileSync(serverPidFile, `${String(server.pid)}\n`, "utf8")
+  }
   console.log(`${LOG_PREFIX.replace("]", ":server]")} started`)
 })
 
 const children = [server]
 let shuttingDown = false
-
-function stopChild(child: ChildProcess) {
-  if (child.killed || child.exitCode !== null) return
-  child.kill("SIGTERM")
-}
 
 function shutdown(exitCode = 0) {
   if (shuttingDown) return
@@ -108,6 +231,7 @@ function onChildExit(label: string, code: number | null, signal: NodeJS.Signals 
 }
 
 server.on("exit", (code, signal) => {
+  removeServerPidFile()
   onChildExit("server", code, signal)
 })
 

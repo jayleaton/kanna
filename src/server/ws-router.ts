@@ -1,11 +1,11 @@
 import type { ServerWebSocket } from "bun"
-import { PROTOCOL_VERSION } from "../shared/types"
+import { PROTOCOL_VERSION, type AgentProvider } from "../shared/types"
 import type { ClientEnvelope, ServerEnvelope, SubscriptionTopic } from "../shared/protocol"
 import { isClientEnvelope } from "../shared/protocol"
 import type { AgentCoordinator } from "./agent"
 import type { DiscoveredProject } from "./discovery"
 import { EventStore } from "./event-store"
-import { openExternal } from "./external-open"
+import { openExternal, openUrl } from "./external-open"
 import { GitManager } from "./git-manager"
 import { KeybindingsManager } from "./keybindings"
 import { ThemeSettingsManager } from "./theme-settings"
@@ -14,11 +14,23 @@ import { importProjectHistory } from "./recovery"
 import { TerminalManager } from "./terminal-manager"
 import type { UpdateManager } from "./update-manager"
 import { deriveChatSnapshot, deriveLocalProjectsSnapshot, deriveSidebarData } from "./read-models"
-import { applyThreadEstimate, mergeUsageSnapshots, reconstructClaudeUsage, reconstructCodexUsageFromFile } from "./usage"
+import {
+  applyThreadEstimate,
+  mergeUsageSnapshots,
+  reconstructClaudeUsage,
+  reconstructCodexUsageFromFile,
+  importCursorUsageFromCurl,
+  refreshClaudeRateLimitFromCli,
+  refreshCursorUsage,
+  signInToCursorWithBrowser,
+} from "./usage"
 
 export interface ClientState {
   subscriptions: Map<string, SubscriptionTopic>
 }
+
+const PROVIDER_USAGE_POLL_INTERVAL_MS = 30 * 60 * 1000
+const PROVIDER_USAGE_POLL_MAX_INTERVAL_MS = 31 * 60 * 1000
 
 interface CreateWsRouterArgs {
   store: EventStore
@@ -31,6 +43,9 @@ interface CreateWsRouterArgs {
   getDiscoveredProjects: () => DiscoveredProject[]
   machineDisplayName: string
   updateManager: UpdateManager | null
+  providerUsagePollIntervalMs?: number
+  refreshProviderUsage?: (provider?: AgentProvider, force?: boolean) => Promise<void>
+  openUrlCommand?: typeof openUrl
 }
 
 function send(ws: ServerWebSocket<ClientState>, message: ServerEnvelope) {
@@ -48,8 +63,20 @@ export function createWsRouter({
   getDiscoveredProjects,
   machineDisplayName,
   updateManager,
+  providerUsagePollIntervalMs,
+  refreshProviderUsage = async (provider, force) => {
+    if (!provider || provider === "claude") {
+      await refreshClaudeRateLimitFromCli(store.dataDir, undefined, force).then(() => {})
+    }
+    if (!provider || provider === "cursor") {
+      await refreshCursorUsage(store.dataDir, undefined, force).then(() => {})
+    }
+  },
+  openUrlCommand = openUrl,
 }: CreateWsRouterArgs) {
   const sockets = new Set<ServerWebSocket<ClientState>>()
+  let providerUsageRefreshInFlight: Promise<void> | null = null
+  let providerUsagePollTimer: Timer | null = null
 
   function createEnvelope(id: string, topic: SubscriptionTopic): ServerEnvelope {
     if (topic.type === "sidebar") {
@@ -59,7 +86,7 @@ export function createWsRouter({
         id,
         snapshot: {
           type: "sidebar",
-          data: deriveSidebarData(store.state, agent.getActiveStatuses()),
+          data: deriveSidebarData(store.state, agent.getActiveStatuses(), agent.getProviderUsage()),
         },
       }
     }
@@ -177,6 +204,24 @@ export function createWsRouter({
     }
   }
 
+  function broadcastSidebarSnapshots() {
+    for (const ws of sockets) {
+      for (const [id, topic] of ws.data.subscriptions.entries()) {
+        if (topic.type !== "sidebar") continue
+        send(ws, createEnvelope(id, topic))
+      }
+    }
+  }
+
+  function hasSidebarSubscribers() {
+    for (const ws of sockets) {
+      for (const topic of ws.data.subscriptions.values()) {
+        if (topic.type === "sidebar") return true
+      }
+    }
+    return false
+  }
+
   function pushTerminalSnapshot(terminalId: string) {
     for (const ws of sockets) {
       for (const [id, topic] of ws.data.subscriptions.entries()) {
@@ -230,6 +275,40 @@ export function createWsRouter({
       }
     }
   }) ?? (() => {})
+
+  async function runProviderUsagePoll() {
+    if (!hasSidebarSubscribers()) return
+    if (!providerUsageRefreshInFlight) {
+      providerUsageRefreshInFlight = refreshProviderUsage().finally(() => {
+        providerUsageRefreshInFlight = null
+      })
+    }
+    await providerUsageRefreshInFlight
+    broadcastSidebarSnapshots()
+  }
+
+  function nextProviderUsagePollDelayMs() {
+    if (typeof providerUsagePollIntervalMs === "number") {
+      return providerUsagePollIntervalMs
+    }
+
+    return Math.floor(Math.random() * (PROVIDER_USAGE_POLL_MAX_INTERVAL_MS - PROVIDER_USAGE_POLL_INTERVAL_MS + 1))
+      + PROVIDER_USAGE_POLL_INTERVAL_MS
+  }
+
+  function scheduleProviderUsagePoll() {
+    if (providerUsagePollTimer) {
+      clearTimeout(providerUsagePollTimer)
+    }
+
+    providerUsagePollTimer = setTimeout(() => {
+      void runProviderUsagePoll().finally(() => {
+        scheduleProviderUsagePoll()
+      })
+    }, nextProviderUsagePollDelayMs())
+  }
+
+  scheduleProviderUsagePoll()
 
   async function handleCommand(ws: ServerWebSocket<ClientState>, message: Extract<ClientEnvelope, { type: "command" }>) {
     const { command, id } = message
@@ -390,6 +469,35 @@ export function createWsRouter({
         case "system.openExternal": {
           await openExternal(command)
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id })
+          break
+        }
+        case "system.openUrl": {
+          await openUrlCommand(command)
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id })
+          break
+        }
+        case "provider.refreshUsage": {
+          await refreshProviderUsage(command.provider, true)
+          broadcastSidebarSnapshots()
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id })
+          break
+        }
+        case "provider.browserLogin": {
+          if (command.provider !== "cursor") {
+            throw new Error(`Browser login is not supported for provider: ${command.provider}`)
+          }
+          const result = await signInToCursorWithBrowser(store.dataDir)
+          broadcastSidebarSnapshots()
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
+          break
+        }
+        case "provider.importUsageCurl": {
+          if (command.provider !== "cursor") {
+            throw new Error(`cURL import is not supported for provider: ${command.provider}`)
+          }
+          const result = await importCursorUsageFromCurl(store.dataDir, command.curlCommand)
+          broadcastSidebarSnapshots()
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
           break
         }
         case "feature.create": {
@@ -571,6 +679,9 @@ export function createWsRouter({
       void handleCommand(ws, parsed)
     },
     dispose() {
+      if (providerUsagePollTimer) {
+        clearTimeout(providerUsagePollTimer)
+      }
       disposeTerminalEvents()
       disposeKeybindingEvents()
       disposeThemeSettingsEvents()
