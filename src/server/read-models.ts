@@ -21,6 +21,7 @@ import type { ChatRecord, StoreState } from "./events"
 import { cloneTranscriptEntries } from "./events"
 import { getDefaultDirectoryRoot, resolveLocalPath } from "./paths"
 import { getProviderInactiveMessage, getSelectableProviders } from "../shared/types"
+import { resolveProjectIconDataUrl } from "./project-icon"
 
 function deriveLastChatModel(chatId: string, state: StoreState): string | null {
   const entries = state.messagesByChatId.get(chatId) ?? []
@@ -44,6 +45,15 @@ export function deriveSidebarData(
   activeStatuses: Map<string, KannaStatus>,
   providerUsage?: ProviderUsageMap
 ): SidebarData {
+  const iconDataUrlByPath = new Map<string, string | null>()
+  const getProjectIconDataUrl = (localPath: string) => {
+    const normalizedPath = resolveLocalPath(localPath)
+    if (!iconDataUrlByPath.has(normalizedPath)) {
+      iconDataUrlByPath.set(normalizedPath, resolveProjectIconDataUrl(normalizedPath))
+    }
+    return iconDataUrlByPath.get(normalizedPath) ?? null
+  }
+
   const projects = [...state.projectsById.values()]
     .filter((project) => !project.deletedAt && !state.hiddenProjectKeys.has(project.repoKey))
     .sort((a, b) => b.updatedAt - a.updatedAt)
@@ -91,6 +101,7 @@ export function deriveSidebarData(
       groupKey: project.id,
       title: project.title,
       localPath: project.localPath,
+      iconDataUrl: getProjectIconDataUrl(project.localPath),
       browserState: project.browserState,
       generalChatsBrowserState: project.generalChatsBrowserState,
       features,
@@ -107,12 +118,21 @@ export function deriveLocalProjectsSnapshot(
   machineName: string
 ): LocalProjectsSnapshot {
   const projects = new Map<string, LocalProjectsSnapshot["projects"][number]>()
+  const iconDataUrlByPath = new Map<string, string | null>()
+  const getProjectIconDataUrl = (localPath: string) => {
+    const normalizedPath = resolveLocalPath(localPath)
+    if (!iconDataUrlByPath.has(normalizedPath)) {
+      iconDataUrlByPath.set(normalizedPath, resolveProjectIconDataUrl(normalizedPath))
+    }
+    return iconDataUrlByPath.get(normalizedPath) ?? null
+  }
 
   for (const project of discoveredProjects) {
     const normalizedPath = resolveLocalPath(project.localPath)
     projects.set(project.repoKey, {
       localPath: normalizedPath,
       title: project.title,
+      iconDataUrl: getProjectIconDataUrl(normalizedPath),
       source: "discovered",
       lastOpenedAt: project.modifiedAt,
       chatCount: 0,
@@ -129,6 +149,7 @@ export function deriveLocalProjectsSnapshot(
     projects.set(project.repoKey, {
       localPath: project.localPath,
       title: project.title,
+      iconDataUrl: getProjectIconDataUrl(project.localPath),
       source: "saved",
       lastOpenedAt,
       chatCount: chats.length,

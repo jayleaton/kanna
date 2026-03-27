@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test"
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import path from "node:path"
 import { deriveChatSnapshot, deriveLocalProjectsSnapshot, deriveSidebarData } from "./read-models"
 import { createEmptyState } from "./events"
 
@@ -35,6 +38,7 @@ describe("read models", () => {
     expect(sidebar.projectGroups[0]?.title).toBe("Project")
     expect(sidebar.projectGroups[0]?.browserState).toBe("OPEN")
     expect(sidebar.projectGroups[0]?.generalChatsBrowserState).toBe("OPEN")
+    expect(sidebar.projectGroups[0]?.iconDataUrl).toBeNull()
   })
 
   test("includes available providers in chat snapshots", () => {
@@ -212,6 +216,7 @@ describe("read models", () => {
       {
         localPath: "/tmp/project",
         title: "Saved Project",
+        iconDataUrl: null,
         source: "saved",
         lastOpenedAt: 100,
         chatCount: 1,
@@ -240,6 +245,354 @@ describe("read models", () => {
 
     expect(deriveSidebarData(state, new Map()).projectGroups).toHaveLength(0)
     expect(deriveLocalProjectsSnapshot(state, [], "Local Machine").projects).toHaveLength(0)
+  })
+
+  test("resolves a project icon from the .kanna folder for sidebar and local project snapshots", () => {
+    const state = createEmptyState()
+    const projectRoot = mkdtempSync(path.join(tmpdir(), "kanna-project-icon-"))
+    const kannaDir = path.join(projectRoot, ".kanna")
+    mkdirSync(kannaDir)
+    writeFileSync(path.join(kannaDir, "icon.svg"), '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16"/></svg>')
+
+    state.projectsById.set("project-1", {
+      id: "project-1",
+      repoKey: `path:${projectRoot}`,
+      localPath: projectRoot,
+      worktreePaths: [projectRoot],
+      title: "Project",
+      browserState: "OPEN",
+      generalChatsBrowserState: "OPEN",
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    state.projectIdsByRepoKey.set(`path:${projectRoot}`, "project-1")
+    state.projectIdsByPath.set(projectRoot, "project-1")
+
+    const sidebar = deriveSidebarData(state, new Map())
+    const localProjects = deriveLocalProjectsSnapshot(state, [], "Local Machine")
+
+    expect(sidebar.projectGroups[0]?.iconDataUrl).toStartWith("data:image/svg+xml;utf8,")
+    expect(localProjects.projects[0]?.iconDataUrl).toStartWith("data:image/svg+xml;utf8,")
+  })
+
+  test("resolves icons from nested app public folders", () => {
+    const state = createEmptyState()
+    const projectRoot = mkdtempSync(path.join(tmpdir(), "kanna-project-icon-apps-"))
+    const publicDir = path.join(projectRoot, "apps", "web", "public")
+    mkdirSync(publicDir, { recursive: true })
+    writeFileSync(path.join(publicDir, "icon.svg"), '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="8"/></svg>')
+
+    state.projectsById.set("project-1", {
+      id: "project-1",
+      repoKey: `path:${projectRoot}`,
+      localPath: projectRoot,
+      worktreePaths: [projectRoot],
+      title: "Project",
+      browserState: "OPEN",
+      generalChatsBrowserState: "OPEN",
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    state.projectIdsByRepoKey.set(`path:${projectRoot}`, "project-1")
+    state.projectIdsByPath.set(projectRoot, "project-1")
+
+    const sidebar = deriveSidebarData(state, new Map())
+
+    expect(sidebar.projectGroups[0]?.iconDataUrl).toStartWith("data:image/svg+xml;utf8,")
+  })
+
+  test("resolves monorepo app public favicons from apps/*", () => {
+    const state = createEmptyState()
+    const projectRoot = mkdtempSync(path.join(tmpdir(), "kanna-project-apps-public-favicon-"))
+    const publicDir = path.join(projectRoot, "apps", "web", "public")
+    mkdirSync(publicDir, { recursive: true })
+    writeFileSync(path.join(publicDir, "favicon.svg"), '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="8"/></svg>')
+
+    state.projectsById.set("project-1", {
+      id: "project-1",
+      repoKey: `path:${projectRoot}`,
+      localPath: projectRoot,
+      worktreePaths: [projectRoot],
+      title: "Project",
+      browserState: "OPEN",
+      generalChatsBrowserState: "OPEN",
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    state.projectIdsByRepoKey.set(`path:${projectRoot}`, "project-1")
+    state.projectIdsByPath.set(projectRoot, "project-1")
+
+    const sidebar = deriveSidebarData(state, new Map())
+
+    expect(sidebar.projectGroups[0]?.iconDataUrl).toStartWith("data:image/svg+xml;utf8,")
+  })
+
+  test("resolves monorepo app icon paths from apps/* framework layouts", () => {
+    const state = createEmptyState()
+    const projectRoot = mkdtempSync(path.join(tmpdir(), "kanna-project-apps-app-icon-"))
+    const appDir = path.join(projectRoot, "apps", "web", "app")
+    mkdirSync(appDir, { recursive: true })
+    writeFileSync(path.join(appDir, "icon.svg"), '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16"/></svg>')
+
+    state.projectsById.set("project-1", {
+      id: "project-1",
+      repoKey: `path:${projectRoot}`,
+      localPath: projectRoot,
+      worktreePaths: [projectRoot],
+      title: "Project",
+      browserState: "OPEN",
+      generalChatsBrowserState: "OPEN",
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    state.projectIdsByRepoKey.set(`path:${projectRoot}`, "project-1")
+    state.projectIdsByPath.set(projectRoot, "project-1")
+
+    const sidebar = deriveSidebarData(state, new Map())
+
+    expect(sidebar.projectGroups[0]?.iconDataUrl).toStartWith("data:image/svg+xml;utf8,")
+  })
+
+  test("resolves a root favicon when no icon file exists", () => {
+    const state = createEmptyState()
+    const projectRoot = mkdtempSync(path.join(tmpdir(), "kanna-project-favicon-root-"))
+    writeFileSync(path.join(projectRoot, "favicon.svg"), '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="8"/></svg>')
+
+    state.projectsById.set("project-1", {
+      id: "project-1",
+      repoKey: `path:${projectRoot}`,
+      localPath: projectRoot,
+      worktreePaths: [projectRoot],
+      title: "Project",
+      browserState: "OPEN",
+      generalChatsBrowserState: "OPEN",
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    state.projectIdsByRepoKey.set(`path:${projectRoot}`, "project-1")
+    state.projectIdsByPath.set(projectRoot, "project-1")
+
+    const sidebar = deriveSidebarData(state, new Map())
+
+    expect(sidebar.projectGroups[0]?.iconDataUrl).toStartWith("data:image/svg+xml;utf8,")
+  })
+
+  test("resolves app icon paths from common framework layouts", () => {
+    const state = createEmptyState()
+    const projectRoot = mkdtempSync(path.join(tmpdir(), "kanna-project-app-icon-"))
+    const appDir = path.join(projectRoot, "app")
+    mkdirSync(appDir)
+    writeFileSync(path.join(appDir, "icon.svg"), '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16"/></svg>')
+
+    state.projectsById.set("project-1", {
+      id: "project-1",
+      repoKey: `path:${projectRoot}`,
+      localPath: projectRoot,
+      worktreePaths: [projectRoot],
+      title: "Project",
+      browserState: "OPEN",
+      generalChatsBrowserState: "OPEN",
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    state.projectIdsByRepoKey.set(`path:${projectRoot}`, "project-1")
+    state.projectIdsByPath.set(projectRoot, "project-1")
+
+    const sidebar = deriveSidebarData(state, new Map())
+
+    expect(sidebar.projectGroups[0]?.iconDataUrl).toStartWith("data:image/svg+xml;utf8,")
+  })
+
+  test("resolves an ico project icon from the project root", () => {
+    const state = createEmptyState()
+    const projectRoot = mkdtempSync(path.join(tmpdir(), "kanna-project-icon-root-ico-"))
+    writeFileSync(
+      path.join(projectRoot, "icon.ico"),
+      Buffer.from("AAABAAEAEBAAAAAAIABoBAAAFgAAACgAAAAQAAAAIAAAAAEAGAAAAAAAAAMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "base64")
+    )
+
+    state.projectsById.set("project-1", {
+      id: "project-1",
+      repoKey: `path:${projectRoot}`,
+      localPath: projectRoot,
+      worktreePaths: [projectRoot],
+      title: "Project",
+      browserState: "OPEN",
+      generalChatsBrowserState: "OPEN",
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    state.projectIdsByRepoKey.set(`path:${projectRoot}`, "project-1")
+    state.projectIdsByPath.set(projectRoot, "project-1")
+
+    const sidebar = deriveSidebarData(state, new Map())
+
+    expect(sidebar.projectGroups[0]?.iconDataUrl).toStartWith("data:image/vnd.microsoft.icon;base64,")
+  })
+
+  test("resolves root icons case-insensitively across supported file types", () => {
+    const state = createEmptyState()
+    const projectRoot = mkdtempSync(path.join(tmpdir(), "kanna-project-icon-root-case-"))
+    writeFileSync(path.join(projectRoot, "ICON.SVG"), '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16"/></svg>')
+
+    state.projectsById.set("project-1", {
+      id: "project-1",
+      repoKey: `path:${projectRoot}`,
+      localPath: projectRoot,
+      worktreePaths: [projectRoot],
+      title: "Project",
+      browserState: "OPEN",
+      generalChatsBrowserState: "OPEN",
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    state.projectIdsByRepoKey.set(`path:${projectRoot}`, "project-1")
+    state.projectIdsByPath.set(projectRoot, "project-1")
+
+    const sidebar = deriveSidebarData(state, new Map())
+
+    expect(sidebar.projectGroups[0]?.iconDataUrl).toStartWith("data:image/svg+xml;utf8,")
+  })
+
+  test("resolves non-svg icons from .kanna", () => {
+    const state = createEmptyState()
+    const projectRoot = mkdtempSync(path.join(tmpdir(), "kanna-project-icon-kanna-png-"))
+    const kannaDir = path.join(projectRoot, ".kanna")
+    mkdirSync(kannaDir)
+    writeFileSync(
+      path.join(kannaDir, "icon.png"),
+      Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jgZkAAAAASUVORK5CYII=", "base64")
+    )
+
+    state.projectsById.set("project-1", {
+      id: "project-1",
+      repoKey: `path:${projectRoot}`,
+      localPath: projectRoot,
+      worktreePaths: [projectRoot],
+      title: "Project",
+      browserState: "OPEN",
+      generalChatsBrowserState: "OPEN",
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    state.projectIdsByRepoKey.set(`path:${projectRoot}`, "project-1")
+    state.projectIdsByPath.set(projectRoot, "project-1")
+
+    const sidebar = deriveSidebarData(state, new Map())
+
+    expect(sidebar.projectGroups[0]?.iconDataUrl).toStartWith("data:image/png;base64,")
+  })
+
+  test("resolves an icon declared in index.html when no direct icon file exists", () => {
+    const state = createEmptyState()
+    const projectRoot = mkdtempSync(path.join(tmpdir(), "kanna-project-icon-declared-"))
+    const publicDir = path.join(projectRoot, "public")
+    mkdirSync(publicDir)
+    writeFileSync(path.join(projectRoot, "index.html"), '<html><head><link rel="icon" href="/brand.svg"></head></html>')
+    writeFileSync(path.join(publicDir, "brand.svg"), '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="8"/></svg>')
+
+    state.projectsById.set("project-1", {
+      id: "project-1",
+      repoKey: `path:${projectRoot}`,
+      localPath: projectRoot,
+      worktreePaths: [projectRoot],
+      title: "Project",
+      browserState: "OPEN",
+      generalChatsBrowserState: "OPEN",
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    state.projectIdsByRepoKey.set(`path:${projectRoot}`, "project-1")
+    state.projectIdsByPath.set(projectRoot, "project-1")
+
+    const sidebar = deriveSidebarData(state, new Map())
+
+    expect(sidebar.projectGroups[0]?.iconDataUrl).toStartWith("data:image/svg+xml;utf8,")
+  })
+
+  test("prefers root and .kanna icon files over declared icons", () => {
+    const state = createEmptyState()
+    const projectRoot = mkdtempSync(path.join(tmpdir(), "kanna-project-icon-direct-over-declared-"))
+    const kannaDir = path.join(projectRoot, ".kanna")
+    const publicDir = path.join(projectRoot, "public")
+    mkdirSync(kannaDir)
+    mkdirSync(publicDir)
+    writeFileSync(path.join(projectRoot, "index.html"), '<html><head><link rel="icon" href="/brand.svg"></head></html>')
+    writeFileSync(path.join(publicDir, "brand.svg"), '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="8"/></svg>')
+    writeFileSync(path.join(kannaDir, "icon.png"), Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jgZkAAAAASUVORK5CYII=", "base64"))
+
+    state.projectsById.set("project-1", {
+      id: "project-1",
+      repoKey: `path:${projectRoot}`,
+      localPath: projectRoot,
+      worktreePaths: [projectRoot],
+      title: "Project",
+      browserState: "OPEN",
+      generalChatsBrowserState: "OPEN",
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    state.projectIdsByRepoKey.set(`path:${projectRoot}`, "project-1")
+    state.projectIdsByPath.set(projectRoot, "project-1")
+
+    const sidebar = deriveSidebarData(state, new Map())
+
+    expect(sidebar.projectGroups[0]?.iconDataUrl).toStartWith("data:image/png;base64,")
+  })
+
+  test("prefers svg over ico when multiple root icon formats exist", () => {
+    const state = createEmptyState()
+    const projectRoot = mkdtempSync(path.join(tmpdir(), "kanna-project-icon-root-priority-"))
+    writeFileSync(path.join(projectRoot, "icon.svg"), '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16"/></svg>')
+    writeFileSync(
+      path.join(projectRoot, "icon.ico"),
+      Buffer.from("AAABAAEAEBAAAAAAIABoBAAAFgAAACgAAAAQAAAAIAAAAAEAGAAAAAAAAAMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "base64")
+    )
+
+    state.projectsById.set("project-1", {
+      id: "project-1",
+      repoKey: `path:${projectRoot}`,
+      localPath: projectRoot,
+      worktreePaths: [projectRoot],
+      title: "Project",
+      browserState: "OPEN",
+      generalChatsBrowserState: "OPEN",
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    state.projectIdsByRepoKey.set(`path:${projectRoot}`, "project-1")
+    state.projectIdsByPath.set(projectRoot, "project-1")
+
+    const sidebar = deriveSidebarData(state, new Map())
+
+    expect(sidebar.projectGroups[0]?.iconDataUrl).toStartWith("data:image/svg+xml;utf8,")
+  })
+
+  test("prefers root icon over .kanna icon", () => {
+    const state = createEmptyState()
+    const projectRoot = mkdtempSync(path.join(tmpdir(), "kanna-project-icon-root-over-kanna-"))
+    const kannaDir = path.join(projectRoot, ".kanna")
+    mkdirSync(kannaDir)
+    writeFileSync(path.join(projectRoot, "icon.ico"), Buffer.from("AAABAAEAEBAAAAAAIABoBAAAFgAAACgAAAAQAAAAIAAAAAEAGAAAAAAAAAMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "base64"))
+    writeFileSync(path.join(kannaDir, "icon.svg"), '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16"/></svg>')
+
+    state.projectsById.set("project-1", {
+      id: "project-1",
+      repoKey: `path:${projectRoot}`,
+      localPath: projectRoot,
+      worktreePaths: [projectRoot],
+      title: "Project",
+      browserState: "OPEN",
+      generalChatsBrowserState: "OPEN",
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    state.projectIdsByRepoKey.set(`path:${projectRoot}`, "project-1")
+    state.projectIdsByPath.set(projectRoot, "project-1")
+
+    const sidebar = deriveSidebarData(state, new Map())
+
+    expect(sidebar.projectGroups[0]?.iconDataUrl).toStartWith("data:image/vnd.microsoft.icon;base64,")
   })
 
   test("groups chats into features and general, with done features sorted last", () => {

@@ -434,6 +434,7 @@ export interface SidebarProjectGroup {
   groupKey: string
   title: string
   localPath: string
+  iconDataUrl?: string | null
   browserState: FeatureBrowserState
   generalChatsBrowserState: FeatureBrowserState
   features: SidebarFeatureRow[]
@@ -468,6 +469,7 @@ export interface SidebarData {
 export interface LocalProjectSummary {
   localPath: string
   title: string
+  iconDataUrl?: string | null
   source: "saved" | "discovered"
   lastOpenedAt?: number
   chatCount: number
@@ -569,6 +571,7 @@ export interface ThemeSettingsSnapshot {
     backgroundImage: string | null
     backgroundOpacity: number
     backgroundBlur: number
+    showProjectIconsInSidebar: boolean
   }
   warning: string | null
   filePathDisplay: string
@@ -581,6 +584,7 @@ export const DEFAULT_THEME_SETTINGS: ThemeSettingsSnapshot["settings"] = {
   backgroundImage: null,
   backgroundOpacity: 1,
   backgroundBlur: 0,
+  showProjectIconsInSidebar: true,
 }
 
 export interface McpServerInfo {

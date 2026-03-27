@@ -30,6 +30,8 @@ import { FeatureSectionMenu, ProjectSectionMenu } from "./Menus"
 import { useMediaQuery } from "../../../hooks/useMediaQuery"
 import { useTouchInteraction } from "../../../hooks/useTouchInteraction"
 import { TouchDragOverlay } from "../../ui/touch-drag-overlay"
+import { ProjectIcon } from "../../project/ProjectIcon"
+import { useThemeSettingsStore } from "../../../stores/themeSettingsStore"
 
 export const FEATURE_CHAT_PREVIEW_LIMIT = 8
 
@@ -390,6 +392,7 @@ function SortableProjectGroup({
   folderGroupsEnabled = true,
   kanbanStatusesEnabled = true,
 }: SortableProjectGroupProps) {
+  const showProjectIconsInSidebar = useThemeSettingsStore((store) => store.showProjectIconsInSidebar)
   const { groupKey, localPath, features, generalChats } = group
   const { activeFeatures, completedFeatures } = useMemo(() => splitProjectFeatures(features), [features])
   const projectKey = `project:${groupKey}`
@@ -538,6 +541,14 @@ function SortableProjectGroup({
             )}
           />
         </span>
+        {showProjectIconsInSidebar ? (
+          <ProjectIcon
+            iconDataUrl={group.iconDataUrl}
+            alt={`${group.title || getPathBasename(localPath)} icon`}
+            className="size-5"
+            fallback={<span className="size-5 shrink-0" aria-hidden="true" />}
+          />
+        ) : null}
         <Tooltip>
           <TooltipTrigger asChild>
             <span className="truncate max-w-[180px] whitespace-nowrap text-sm text-slate-500 dark:text-slate-400">

@@ -451,11 +451,13 @@ export function SettingsPage() {
   const backgroundImage = useThemeSettingsStore((store) => store.backgroundImage)
   const backgroundOpacity = useThemeSettingsStore((store) => store.backgroundOpacity)
   const backgroundBlur = useThemeSettingsStore((store) => store.backgroundBlur)
+  const showProjectIconsInSidebar = useThemeSettingsStore((store) => store.showProjectIconsInSidebar)
   const setColorTheme = useThemeSettingsStore((store) => store.setColorTheme)
   const setCustomAppearance = useThemeSettingsStore((store) => store.setCustomAppearance)
   const setBackgroundImage = useThemeSettingsStore((store) => store.setBackgroundImage)
   const setBackgroundOpacity = useThemeSettingsStore((store) => store.setBackgroundOpacity)
   const setBackgroundBlur = useThemeSettingsStore((store) => store.setBackgroundBlur)
+  const setShowProjectIconsInSidebar = useThemeSettingsStore((store) => store.setShowProjectIconsInSidebar)
 
   const resolvedKeybindings = useMemo(() => getResolvedKeybindings(keybindings), [keybindings])
   const keybindingsFilePathDisplay = resolvedKeybindings.filePathDisplay || getKeybindingsFilePathDisplay()
@@ -653,6 +655,7 @@ export function SettingsPage() {
     backgroundImage?: typeof backgroundImage
     backgroundOpacity?: typeof backgroundOpacity
     backgroundBlur?: typeof backgroundBlur
+    showProjectIconsInSidebar?: typeof showProjectIconsInSidebar
   }) {
     try {
       await state.socket.command({
@@ -664,6 +667,7 @@ export function SettingsPage() {
           backgroundImage: overrides?.backgroundImage !== undefined ? overrides.backgroundImage : backgroundImage,
           backgroundOpacity: overrides?.backgroundOpacity ?? backgroundOpacity,
           backgroundBlur: overrides?.backgroundBlur ?? backgroundBlur,
+          showProjectIconsInSidebar: overrides?.showProjectIconsInSidebar ?? showProjectIconsInSidebar,
         },
       })
     } catch (error) {
@@ -1101,6 +1105,28 @@ export function SettingsPage() {
                           </SettingsRow>
                         </div>
                       ) : null}
+
+                      <SettingsRow
+                        title="Project Icons"
+                        description="Show detected project icons in the sidebar and open-project list."
+                      >
+                        <Select
+                          value={showProjectIconsInSidebar ? "enabled" : "disabled"}
+                          onValueChange={(value) => {
+                            const enabled = value === "enabled"
+                            setShowProjectIconsInSidebar(enabled)
+                            void commitThemeSettings({ showProjectIconsInSidebar: enabled })
+                          }}
+                        >
+                          <SelectTrigger className="w-[100px]">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="disabled">Off</SelectItem>
+                            <SelectItem value="enabled">On</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </SettingsRow>
 
                       <SettingsRow
                         title="Folder Groups"

@@ -30,6 +30,7 @@ function createProjectGroup(features: SidebarProjectGroup["features"]): SidebarP
     groupKey: "project-1",
     title: "Project 1",
     localPath: "/tmp/project",
+    iconDataUrl: null,
     browserState: "OPEN",
     generalChatsBrowserState: "OPEN",
     features,
@@ -181,5 +182,26 @@ describe("LocalProjectsSection", () => {
     )
 
     expect(html).toContain("lucide-chevrons-up")
+  })
+
+  test("renders the project icon between the chevron and name when present", () => {
+    const projectGroup = {
+      ...createProjectGroup([]),
+      iconDataUrl: "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2016%2016%22%3E%3Ccircle%20cx%3D%228%22%20cy%3D%228%22%20r%3D%228%22%2F%3E%3C%2Fsvg%3E",
+    }
+
+    const html = renderToStaticMarkup(
+      <TooltipProvider>
+        <LocalProjectsSection
+          projectGroups={[projectGroup]}
+          collapsedSections={new Set()}
+          onToggleSection={() => {}}
+          renderChatRow={(chat) => <div key={chat.chatId} data-chat-id={chat.chatId}>{chat.title}</div>}
+          folderGroupsEnabled
+        />
+      </TooltipProvider>
+    )
+
+    expect(html).toContain('alt="Project 1 icon"')
   })
 })

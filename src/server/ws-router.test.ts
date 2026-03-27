@@ -65,6 +65,7 @@ const DEFAULT_THEME_SETTINGS_SNAPSHOT: ThemeSettingsSnapshot = {
     backgroundImage: null,
     backgroundOpacity: 1,
     backgroundBlur: 0,
+    showProjectIconsInSidebar: true,
   },
   warning: null,
   filePathDisplay: "~/.kanna/theme.json",

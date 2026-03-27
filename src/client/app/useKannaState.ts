@@ -431,6 +431,7 @@ export function useKannaState(activeChatId: string | null): KannaState {
         backgroundImage: snapshot.settings.backgroundImage,
         backgroundOpacity: snapshot.settings.backgroundOpacity,
         backgroundBlur: snapshot.settings.backgroundBlur,
+        showProjectIconsInSidebar: snapshot.settings.showProjectIconsInSidebar,
       })
     })
   }, [socket])

@@ -11,12 +11,14 @@ interface ThemeSettingsState {
   backgroundImage: string | null
   backgroundOpacity: number
   backgroundBlur: number
+  showProjectIconsInSidebar: boolean
   setThemePreference: (pref: ThemePreference) => void
   setColorTheme: (theme: ColorTheme) => void
   setCustomAppearance: (appearance: CustomAppearance) => void
   setBackgroundImage: (image: string | null) => void
   setBackgroundOpacity: (opacity: number) => void
   setBackgroundBlur: (blur: number) => void
+  setShowProjectIconsInSidebar: (enabled: boolean) => void
 }
 
 export const useThemeSettingsStore = create<ThemeSettingsState>()(
@@ -28,12 +30,14 @@ export const useThemeSettingsStore = create<ThemeSettingsState>()(
       backgroundImage: null,
       backgroundOpacity: 1,
       backgroundBlur: 0,
+      showProjectIconsInSidebar: true,
       setThemePreference: (themePreference) => set({ themePreference }),
       setColorTheme: (colorTheme) => set({ colorTheme }),
       setCustomAppearance: (customAppearance) => set({ customAppearance }),
       setBackgroundImage: (backgroundImage) => set({ backgroundImage }),
       setBackgroundOpacity: (backgroundOpacity) => set({ backgroundOpacity }),
       setBackgroundBlur: (backgroundBlur) => set({ backgroundBlur }),
+      setShowProjectIconsInSidebar: (showProjectIconsInSidebar) => set({ showProjectIconsInSidebar }),
     }),
     {
       name: "theme-settings",

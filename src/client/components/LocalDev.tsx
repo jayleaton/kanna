@@ -19,8 +19,10 @@ import { PageHeader } from "../app/PageHeader"
 import { getPathBasename } from "../lib/formatters"
 import { cn } from "../lib/utils"
 import { NewProjectModal } from "./NewProjectModal"
+import { ProjectIcon } from "./project/ProjectIcon"
 import { Button } from "./ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip"
+import { useThemeSettingsStore } from "../stores/themeSettingsStore"
 
 interface LocalDevProps {
   connectionStatus: SocketStatus
@@ -129,15 +131,19 @@ function Step({
 
 function ProjectCard({
   localPath,
+  iconDataUrl,
   loading,
   onClick,
   onHide,
 }: {
   localPath: string
+  iconDataUrl?: string | null
   loading: boolean
   onClick: () => void
   onHide: () => void
 }) {
+  const showProjectIconsInSidebar = useThemeSettingsStore((store) => store.showProjectIconsInSidebar)
+
   return (
     <div className="relative group">
       <Tooltip>
@@ -150,7 +156,14 @@ function ProjectCard({
             disabled={loading}
             onClick={onClick}
           >
-            <Folder className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+            {showProjectIconsInSidebar ? (
+              <ProjectIcon
+                iconDataUrl={iconDataUrl}
+                alt={`${getPathBasename(localPath)} icon`}
+                className="h-5.5 w-5.5"
+                fallback={<Folder className="h-5.5 w-5.5 text-muted-foreground flex-shrink-0" />}
+              />
+            ) : null}
             <span className="font-medium text-foreground truncate flex-1 pr-10">
               {getPathBasename(localPath)}
             </span>
@@ -297,6 +310,7 @@ export function LocalDev({
                   <ProjectCard
                     key={project.localPath}
                     localPath={project.localPath}
+                    iconDataUrl={project.iconDataUrl}
                     loading={startingLocalPath === project.localPath}
                     onClick={() => {
                       void onOpenProject(project.localPath)

@@ -141,6 +141,11 @@ export function normalizeThemeSettings(
       ? source.backgroundBlur
       : DEFAULT_THEME_SETTINGS.backgroundBlur
 
+  const showProjectIconsInSidebar: boolean =
+    typeof source.showProjectIconsInSidebar === "boolean"
+      ? source.showProjectIconsInSidebar
+      : DEFAULT_THEME_SETTINGS.showProjectIconsInSidebar
+
   return {
     settings: {
       themePreference,
@@ -149,6 +154,7 @@ export function normalizeThemeSettings(
       backgroundImage,
       backgroundOpacity,
       backgroundBlur,
+      showProjectIconsInSidebar,
     },
     warning: null,
     filePathDisplay: formatDisplayPath(filePath),
