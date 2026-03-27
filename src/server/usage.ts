@@ -521,6 +521,13 @@ const PROVIDER_CACHE_TTL_MS = 30_000
 const PROVIDER_USAGE_REQUEST_MIN_INTERVAL_MS = 30 * 60 * 1000
 let claudeRateLimitRefreshInFlight: Promise<ChatUsageSnapshot | null> | null = null
 
+export function resetProviderUsageCaches() {
+  codexUsageCache = null
+  claudeFileCache = null
+  cursorUsageFileCache = null
+  claudeRateLimitRefreshInFlight = null
+}
+
 interface ClaudeRateLimitCacheSnapshot extends ChatUsageSnapshot {
   rateLimitResetLabel?: string | null
   weeklyLimitUsedPercent?: number | null
@@ -823,7 +830,8 @@ function claudeUsageCollectorScript() {
     "        if not data:",
     "            break",
     "        buf.extend(data)",
-    "        if b'Current week' in buf and b'used' in buf:",
+    "        week_pos = buf.find(b'Current week')",
+    "        if week_pos >= 0 and b'used' in buf[week_pos:]:",
     "            break",
     "    try: os.write(master, b'\\x1b')",
     "    except OSError: pass",

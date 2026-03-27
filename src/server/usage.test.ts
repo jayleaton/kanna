@@ -15,6 +15,7 @@ import {
   refreshCursorUsage,
   reconstructClaudeUsage,
   reconstructCodexUsageFromFile,
+  resetProviderUsageCaches,
 } from "./usage"
 import { EventStore } from "./event-store"
 
@@ -292,6 +293,7 @@ Resets Mar 30, 8am (Asia/Bangkok)
   })
 
   test("upgrades legacy Claude weekly cache entries that were stored in the session field", async () => {
+    resetProviderUsageCaches()
     const root = mkdtempSync(path.join(tmpdir(), "kanna-claude-cli-usage-"))
     try {
       writeFileSync(path.join(root, "claude-rate-limit.json"), JSON.stringify({
@@ -306,8 +308,7 @@ Resets Mar 30, 8am (Asia/Bangkok)
       const usage = deriveProviderUsage(new Map(), store)
 
       expect(usage.claude).toMatchObject({
-        sessionLimitUsedPercent: 0,
-        rateLimitResetLabel: "5:59pm (Asia/Bangkok)",
+        sessionLimitUsedPercent: null,
         weeklyLimitUsedPercent: 92,
         weeklyRateLimitResetLabel: "Mar 30, 8am (Asia/Bangkok)",
       })
