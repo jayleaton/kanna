@@ -72,6 +72,7 @@ function KannaLayout() {
     >
       <KannaSidebar
         data={state.sidebarData}
+        completedChatIds={state.completedChatIds}
         activeChatId={state.activeChatId}
         connectionStatus={state.connectionStatus}
         ready={state.sidebarReady}
