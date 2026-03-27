@@ -22,14 +22,15 @@ import {
   importCursorUsageFromCurl,
   refreshClaudeRateLimitFromCli,
   refreshCursorUsage,
+  signInToCursorWithBrowser,
 } from "./usage"
 
 export interface ClientState {
   subscriptions: Map<string, SubscriptionTopic>
 }
 
-const PROVIDER_USAGE_POLL_INTERVAL_MS = 2 * 60 * 1000
-const PROVIDER_USAGE_POLL_MAX_INTERVAL_MS = 3 * 60 * 1000
+const PROVIDER_USAGE_POLL_INTERVAL_MS = 30 * 60 * 1000
+const PROVIDER_USAGE_POLL_MAX_INTERVAL_MS = 31 * 60 * 1000
 
 interface CreateWsRouterArgs {
   store: EventStore
@@ -43,7 +44,7 @@ interface CreateWsRouterArgs {
   machineDisplayName: string
   updateManager: UpdateManager | null
   providerUsagePollIntervalMs?: number
-  refreshProviderUsage?: (provider?: AgentProvider) => Promise<void>
+  refreshProviderUsage?: (provider?: AgentProvider, force?: boolean) => Promise<void>
   openUrlCommand?: typeof openUrl
 }
 
@@ -63,12 +64,12 @@ export function createWsRouter({
   machineDisplayName,
   updateManager,
   providerUsagePollIntervalMs,
-  refreshProviderUsage = async (provider) => {
+  refreshProviderUsage = async (provider, force) => {
     if (!provider || provider === "claude") {
-      await refreshClaudeRateLimitFromCli(store.dataDir).then(() => {})
+      await refreshClaudeRateLimitFromCli(store.dataDir, undefined, force).then(() => {})
     }
-    if (provider === "cursor") {
-      await refreshCursorUsage(store.dataDir).then(() => {})
+    if (!provider || provider === "cursor") {
+      await refreshCursorUsage(store.dataDir, undefined, force).then(() => {})
     }
   },
   openUrlCommand = openUrl,
@@ -476,9 +477,18 @@ export function createWsRouter({
           break
         }
         case "provider.refreshUsage": {
-          await refreshProviderUsage(command.provider)
+          await refreshProviderUsage(command.provider, true)
           broadcastSidebarSnapshots()
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id })
+          break
+        }
+        case "provider.browserLogin": {
+          if (command.provider !== "cursor") {
+            throw new Error(`Browser login is not supported for provider: ${command.provider}`)
+          }
+          const result = await signInToCursorWithBrowser(store.dataDir)
+          broadcastSidebarSnapshots()
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
           break
         }
         case "provider.importUsageCurl": {

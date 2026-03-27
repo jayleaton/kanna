@@ -208,7 +208,7 @@ export interface KannaState {
   handleCreateProject: (project: ProjectRequest) => Promise<void>
   handleCheckForUpdates: (options?: { force?: boolean }) => Promise<void>
   handleInstallUpdate: () => Promise<void>
-  handleRefreshProviderUsage: (provider: AgentProvider) => Promise<void>
+  handleRefreshProviderUsage: (provider?: AgentProvider) => Promise<void>
   handleOpenProviderLogin: (provider: AgentProvider) => Promise<void>
   handleCloseCursorCurlImport: () => void
   handleSubmitCursorCurlImport: (curlCommand: string) => Promise<void>
@@ -767,7 +767,7 @@ export function useKannaState(activeChatId: string | null): KannaState {
     }
   }
 
-  async function handleRefreshProviderUsage(provider: AgentProvider) {
+  async function handleRefreshProviderUsage(provider?: AgentProvider) {
     try {
       await socket.command({ type: "provider.refreshUsage", provider })
       setCommandError(null)
@@ -777,13 +777,23 @@ export function useKannaState(activeChatId: string | null): KannaState {
   }
 
   async function handleOpenProviderLogin(provider: AgentProvider) {
-    const url = provider === "cursor" ? "https://cursor.com/dashboard/spending" : null
-    if (!url) return
+    if (provider !== "cursor") return
 
     try {
-      await socket.command({ type: "system.openUrl", url })
-      if (provider === "cursor") {
-        setCursorCurlImportOpen(true)
+      const result = await socket.command<ProviderUsageEntry>({
+        type: "provider.browserLogin",
+        provider,
+      })
+      if (result.availability === "login_required") {
+        if (result.statusDetail === "browser_launch_failed") {
+          setCursorCurlImportOpen(true)
+        }
+        setCommandError(
+          result.statusDetail === "browser_launch_failed"
+            ? "Could not launch a Chromium browser for Cursor sign-in. Paste a copied cURL command instead."
+            : "Cursor sign-in did not complete. Try again and finish login in the opened browser."
+        )
+        return
       }
       setCommandError(null)
     } catch (error) {

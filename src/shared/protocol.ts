@@ -94,7 +94,8 @@ export type ClientCommand =
     }
   | { type: "chat.cancel"; chatId: string }
   | { type: "chat.respondTool"; chatId: string; toolUseId: string; result: unknown }
-  | { type: "provider.refreshUsage"; provider: AgentProvider }
+  | { type: "provider.refreshUsage"; provider?: AgentProvider }
+  | { type: "provider.browserLogin"; provider: AgentProvider }
   | { type: "provider.importUsageCurl"; provider: AgentProvider; curlCommand: string }
   | { type: "terminal.create"; projectId: string; terminalId: string; cols: number; rows: number; scrollback: number }
   | { type: "terminal.input"; terminalId: string; data: string }

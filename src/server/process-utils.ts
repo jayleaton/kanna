@@ -9,6 +9,13 @@ export function hasCommand(command: string) {
   return result.status === 0
 }
 
+export function resolveCommandPath(command: string) {
+  const result = spawnSync("sh", ["-lc", `command -v ${command}`], { stdio: ["ignore", "pipe", "ignore"] })
+  if (result.status !== 0) return null
+  const output = result.stdout?.toString().trim()
+  return output || null
+}
+
 export function canOpenMacApp(appName: string) {
   const result = spawnSync("open", ["-Ra", appName], { stdio: "ignore" })
   return result.status === 0

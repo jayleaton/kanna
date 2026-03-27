@@ -4,6 +4,7 @@ import { homedir, tmpdir } from "node:os"
 import path from "node:path"
 import process from "node:process"
 import { createDecipheriv, pbkdf2Sync } from "node:crypto"
+import puppeteer from "puppeteer-core"
 import type {
   AgentProvider,
   ChatUsageSnapshot,
@@ -14,6 +15,7 @@ import type {
   TranscriptEntry,
 } from "../shared/types"
 import type { EventStore } from "./event-store"
+import { canOpenMacApp, resolveCommandPath } from "./process-utils"
 
 const WARNING_THRESHOLD = 75
 const CRITICAL_THRESHOLD = 90
@@ -49,6 +51,7 @@ interface CursorSessionCache {
 
 interface CursorUsagePayload {
   sessionLimitUsedPercent: number | null
+  apiPercentUsed: number | null
   rateLimitResetAt: number | null
   rateLimitResetLabel: string | null
 }
@@ -67,6 +70,7 @@ const CHROME_EPOCH_OFFSET_MS = Date.UTC(1601, 0, 1)
 const CURSOR_SESSION_COOKIE_NAME = "WorkosCursorSessionToken"
 const CURSOR_DASHBOARD_URL = "https://cursor.com/dashboard/spending"
 const CURSOR_USAGE_URL = "https://cursor.com/api/dashboard/get-current-period-usage"
+const CURSOR_BROWSER_LOGIN_TIMEOUT_MS = 5 * 60 * 1000
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null
@@ -512,9 +516,9 @@ export function createClaudeRateLimitSnapshot(percent: number | null, resetsAt: 
 
 let codexUsageCache: { snapshot: ChatUsageSnapshot | null; cachedAt: number } | null = null
 let claudeFileCache: { snapshot: ChatUsageSnapshot | null; cachedAt: number } | null = null
-let cursorUsageFileCache: { entry: ProviderUsageEntry | null; cachedAt: number } | null = null
+let cursorUsageFileCache: { filePath: string; entry: ProviderUsageEntry | null; cachedAt: number } | null = null
 const PROVIDER_CACHE_TTL_MS = 30_000
-const PROVIDER_USAGE_REQUEST_MIN_INTERVAL_MS = 120_000
+const PROVIDER_USAGE_REQUEST_MIN_INTERVAL_MS = 30 * 60 * 1000
 let claudeRateLimitRefreshInFlight: Promise<ChatUsageSnapshot | null> | null = null
 
 interface ClaudeRateLimitCacheSnapshot extends ChatUsageSnapshot {
@@ -855,7 +859,8 @@ function collectClaudeUsageScreen(args?: { cwd?: string; continueSession?: boole
 
 export async function refreshClaudeRateLimitFromCli(
   dataDir: string,
-  runCommand?: () => Promise<string>
+  runCommand?: () => Promise<string>,
+  force?: boolean
 ): Promise<ChatUsageSnapshot | null> {
   if (!runCommand) {
     const now = Date.now()
@@ -863,7 +868,7 @@ export async function refreshClaudeRateLimitFromCli(
       return claudeRateLimitRefreshInFlight
     }
 
-    if (now - readProviderUsageLastRequestedAt(dataDir, "claude") < PROVIDER_USAGE_REQUEST_MIN_INTERVAL_MS) {
+    if (!force && now - readProviderUsageLastRequestedAt(dataDir, "claude") < PROVIDER_USAGE_REQUEST_MIN_INTERVAL_MS) {
       return loadPersistedClaudeRateLimit(dataDir)
     }
 
@@ -1010,32 +1015,38 @@ function loadPersistedCursorSession(dataDir: string): CursorSessionCache | null 
 }
 
 function persistCursorUsageEntry(dataDir: string, entry: ProviderUsageEntry) {
-  writeFileSync(cursorUsagePath(dataDir), JSON.stringify(entry))
-  cursorUsageFileCache = { entry, cachedAt: Date.now() }
+  const filePath = cursorUsagePath(dataDir)
+  writeFileSync(filePath, JSON.stringify(entry))
+  cursorUsageFileCache = { filePath, entry, cachedAt: Date.now() }
 }
 
 function loadPersistedCursorUsageEntry(dataDir: string): ProviderUsageEntry | null {
   const now = Date.now()
-  if (cursorUsageFileCache && now - cursorUsageFileCache.cachedAt < PROVIDER_CACHE_TTL_MS) {
+  const filePath = cursorUsagePath(dataDir)
+  if (cursorUsageFileCache && cursorUsageFileCache.filePath === filePath && now - cursorUsageFileCache.cachedAt < PROVIDER_CACHE_TTL_MS) {
     return cursorUsageFileCache.entry
   }
 
   try {
-    const filePath = cursorUsagePath(dataDir)
     if (!existsSync(filePath)) return null
     const parsed = JSON.parse(readFileSync(filePath, "utf8"))
     const entry = asRecord(parsed)
     if (!entry) return null
     const availability = typeof entry.availability === "string" ? entry.availability as ProviderUsageAvailability : "unavailable"
+    const hasApiLimitUsedPercent = Object.prototype.hasOwnProperty.call(entry, "apiLimitUsedPercent")
     const normalized: ProviderUsageEntry = {
       provider: "cursor",
       sessionLimitUsedPercent: typeof entry.sessionLimitUsedPercent === "number" ? entry.sessionLimitUsedPercent : null,
+      apiLimitUsedPercent: hasApiLimitUsedPercent
+        ? (typeof entry.apiLimitUsedPercent === "number" ? entry.apiLimitUsedPercent : null)
+        : undefined,
       rateLimitResetAt: typeof entry.rateLimitResetAt === "number" ? entry.rateLimitResetAt : null,
       rateLimitResetLabel: typeof entry.rateLimitResetLabel === "string" ? entry.rateLimitResetLabel : null,
       weeklyLimitUsedPercent: typeof entry.weeklyLimitUsedPercent === "number" ? entry.weeklyLimitUsedPercent : null,
       weeklyRateLimitResetAt: typeof entry.weeklyRateLimitResetAt === "number" ? entry.weeklyRateLimitResetAt : null,
       weeklyRateLimitResetLabel: typeof entry.weeklyRateLimitResetLabel === "string" ? entry.weeklyRateLimitResetLabel : null,
       statusDetail: typeof entry.statusDetail === "string" ? entry.statusDetail : null,
+      lastRequestedAt: typeof entry.lastRequestedAt === "number" ? entry.lastRequestedAt : null,
       availability: availability === "available" || availability === "unavailable" || availability === "stale" || availability === "login_required"
         ? availability
         : "unavailable",
@@ -1052,18 +1063,19 @@ function loadPersistedCursorUsageEntry(dataDir: string): ProviderUsageEntry | nu
       })
     }
 
-    cursorUsageFileCache = { entry: normalized, cachedAt: now }
+    cursorUsageFileCache = { filePath, entry: normalized, cachedAt: now }
     return normalized
   } catch {
-    cursorUsageFileCache = { entry: null, cachedAt: now }
+    cursorUsageFileCache = { filePath, entry: null, cachedAt: now }
     return null
   }
 }
 
-function cursorEntryFromSuccess(payload: CursorUsagePayload, updatedAt = Date.now()): ProviderUsageEntry {
+function cursorEntryFromSuccess(payload: CursorUsagePayload, updatedAt = Date.now(), lastRequestedAt = updatedAt): ProviderUsageEntry {
   return {
     provider: "cursor",
     sessionLimitUsedPercent: payload.sessionLimitUsedPercent,
+    apiLimitUsedPercent: payload.apiPercentUsed,
     rateLimitResetAt: payload.rateLimitResetAt,
     rateLimitResetLabel: payload.rateLimitResetLabel,
     weeklyLimitUsedPercent: null,
@@ -1071,6 +1083,7 @@ function cursorEntryFromSuccess(payload: CursorUsagePayload, updatedAt = Date.no
     weeklyRateLimitResetLabel: null,
     statusDetail: null,
     availability: "available",
+    lastRequestedAt,
     updatedAt,
     warnings: usageWarnings({
       contextUsedPercent: null,
@@ -1083,11 +1096,13 @@ function cursorEntryFromSuccess(payload: CursorUsagePayload, updatedAt = Date.no
 function cursorStatusEntry(args: {
   availability: ProviderUsageAvailability
   statusDetail: string | null
+  lastRequestedAt?: number | null
   updatedAt?: number | null
 }): ProviderUsageEntry {
   return {
     provider: "cursor",
     sessionLimitUsedPercent: null,
+    apiLimitUsedPercent: null,
     rateLimitResetAt: null,
     rateLimitResetLabel: null,
     weeklyLimitUsedPercent: null,
@@ -1095,6 +1110,7 @@ function cursorStatusEntry(args: {
     weeklyRateLimitResetLabel: null,
     statusDetail: args.statusDetail,
     availability: args.availability,
+    lastRequestedAt: args.lastRequestedAt ?? null,
     updatedAt: args.updatedAt ?? null,
     warnings: args.availability === "stale" && args.updatedAt
       ? ["stale"]
@@ -1318,6 +1334,18 @@ export function parseCursorUsagePayload(payload: unknown): CursorUsagePayload | 
   const record = asRecord(payload)
   if (!record) return null
 
+  const planUsage = asRecord(record.planUsage)
+  const autoPercentUsed = toNumber(planUsage?.autoPercentUsed)
+  const apiPercentRaw = toNumber(planUsage?.apiPercentUsed)
+  if (autoPercentUsed !== null) {
+    return {
+      sessionLimitUsedPercent: toPercent(autoPercentUsed),
+      apiPercentUsed: toPercent(apiPercentRaw),
+      rateLimitResetAt: null,
+      rateLimitResetLabel: null,
+    }
+  }
+
   const percentValue = findFirstValue(record, [
     /^used_?percent$/i,
     /^session_?limit_?used_?percent$/i,
@@ -1346,6 +1374,7 @@ export function parseCursorUsagePayload(payload: unknown): CursorUsagePayload | 
 
   return {
     sessionLimitUsedPercent: toPercent(percent),
+    apiPercentUsed: null,
     rateLimitResetAt: parseCursorTimestamp(resetValue),
     rateLimitResetLabel: normalizeCursorResetLabel(resetLabelValue),
   }
@@ -1639,11 +1668,15 @@ async function refreshCursorSessionFromDashboard(session: CursorSessionCache) {
   return { ok: true as const, session: nextSession }
 }
 
-export async function refreshCursorUsage(dataDir: string, platform = process.platform): Promise<ProviderUsageEntry> {
+export async function refreshCursorUsage(dataDir: string, platform = process.platform, force = false): Promise<ProviderUsageEntry> {
   const now = Date.now()
-  const lastRequestedAt = readProviderUsageLastRequestedAt(dataDir, "cursor")
   const persistedEntry = loadPersistedCursorUsageEntry(dataDir)
-  if (now - lastRequestedAt < PROVIDER_USAGE_REQUEST_MIN_INTERVAL_MS && persistedEntry) {
+  const lastRequestedAt = persistedEntry?.lastRequestedAt ?? readProviderUsageLastRequestedAt(dataDir, "cursor")
+  const needsCursorUsageSplitRefresh = persistedEntry?.availability === "available"
+    && persistedEntry.sessionLimitUsedPercent !== null
+    && persistedEntry.apiLimitUsedPercent === undefined
+
+  if (!force && now - lastRequestedAt < PROVIDER_USAGE_REQUEST_MIN_INTERVAL_MS && persistedEntry && !needsCursorUsageSplitRefresh) {
     return persistedEntry
   }
 
@@ -1662,6 +1695,7 @@ export async function refreshCursorUsage(dataDir: string, platform = process.pla
     const entry = cursorStatusEntry({
       availability: platform === "linux" || platform === "darwin" ? "login_required" : "unavailable",
       statusDetail: platform === "linux" || platform === "darwin" ? "browser_cookie_import_failed" : "unsupported_platform",
+      lastRequestedAt: now,
     })
     persistCursorUsageEntry(dataDir, entry)
     return entry
@@ -1698,6 +1732,7 @@ export async function refreshCursorUsage(dataDir: string, platform = process.pla
     const entry = cursorStatusEntry({
       availability: result.authFailed ? "login_required" : "unavailable",
       statusDetail: result.authFailed ? "session_refresh_failed" : "fetch_failed",
+      lastRequestedAt: now,
       updatedAt: session.lastSuccessAt,
     })
     persistCursorUsageEntry(dataDir, entry)
@@ -1708,7 +1743,7 @@ export async function refreshCursorUsage(dataDir: string, platform = process.pla
   session.updatedAt = session.lastSuccessAt
   persistCursorSession(dataDir, session)
 
-  const entry = cursorEntryFromSuccess(result.payload, session.lastSuccessAt)
+  const entry = cursorEntryFromSuccess(result.payload, session.lastSuccessAt, now)
   persistCursorUsageEntry(dataDir, entry)
   return entry
 }
@@ -1719,6 +1754,7 @@ export async function importCursorUsageFromCurl(dataDir: string, curlCommand: st
     return cursorStatusEntry({
       availability: "login_required",
       statusDetail: "invalid_curl_import",
+      lastRequestedAt: Date.now(),
     })
   }
 
@@ -1730,6 +1766,118 @@ export async function importCursorUsageFromCurl(dataDir: string, curlCommand: st
   }
   persistCursorSession(dataDir, session)
   return refreshCursorUsage(dataDir, platform)
+}
+
+function resolveBrowserExecutable(platform = process.platform) {
+  const resolvedCommand = resolveCommandPath("google-chrome")
+    ?? resolveCommandPath("chromium")
+    ?? resolveCommandPath("chromium-browser")
+    ?? resolveCommandPath("brave-browser")
+  if (resolvedCommand) return resolvedCommand
+
+  if (platform === "darwin") {
+    if (canOpenMacApp("Google Chrome")) return "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    if (canOpenMacApp("Chromium")) return "/Applications/Chromium.app/Contents/MacOS/Chromium"
+    if (canOpenMacApp("Brave Browser")) return "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"
+  }
+
+  return null
+}
+
+function sessionFromBrowserCookies(cookies: Array<{
+  name: string
+  value: string
+  domain?: string
+  path?: string
+  expires?: number
+  secure?: boolean
+  httpOnly?: boolean
+}>): CursorSessionCache {
+  return {
+    cookies: cookies
+      .filter((cookie) => normalizeCookieDomain(cookie.domain ?? "cursor.com").endsWith("cursor.com"))
+      .map((cookie) => ({
+        name: cookie.name,
+        value: cookie.value,
+        domain: normalizeCookieDomain(cookie.domain ?? "cursor.com"),
+        path: cookie.path ?? "/",
+        expiresAt: typeof cookie.expires === "number" && Number.isFinite(cookie.expires) ? cookie.expires * 1000 : null,
+        secure: cookie.secure !== false,
+        httpOnly: cookie.httpOnly === true,
+      })),
+    updatedAt: Date.now(),
+    lastSuccessAt: null,
+  }
+}
+
+export async function signInToCursorWithBrowser(dataDir: string, platform = process.platform) {
+  const executablePath = resolveBrowserExecutable(platform)
+  if (!executablePath) {
+    return cursorStatusEntry({
+      availability: "login_required",
+      statusDetail: "browser_launch_failed",
+      lastRequestedAt: Date.now(),
+    })
+  }
+
+  const userDataDir = mkdtempSync(path.join(tmpdir(), "kanna-cursor-login-"))
+  let browser: Awaited<ReturnType<typeof puppeteer.launch>> | null = null
+
+  try {
+    browser = await puppeteer.launch({
+      executablePath,
+      headless: false,
+      userDataDir,
+      defaultViewport: null,
+      ignoreDefaultArgs: ["--enable-automation"],
+      args: [
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--disable-blink-features=AutomationControlled",
+      ],
+    })
+
+    const page = await browser.newPage()
+    await page.evaluateOnNewDocument(() => {
+      Object.defineProperty(navigator, "webdriver", {
+        get: () => undefined,
+      })
+    })
+    await page.goto(CURSOR_DASHBOARD_URL, { waitUntil: "domcontentloaded" })
+
+    const start = Date.now()
+    let session: CursorSessionCache | null = null
+    while (Date.now() - start < CURSOR_BROWSER_LOGIN_TIMEOUT_MS) {
+      const cookies = await page.cookies(CURSOR_DASHBOARD_URL)
+      if (cookies.some((cookie) => cookie.name === CURSOR_SESSION_COOKIE_NAME && cookie.value)) {
+        session = sessionFromBrowserCookies(cookies)
+        break
+      }
+      await Bun.sleep(1000)
+    }
+
+    if (!session) {
+      return cursorStatusEntry({
+        availability: "login_required",
+        statusDetail: "browser_login_failed",
+        lastRequestedAt: Date.now(),
+      })
+    }
+
+    persistCursorSession(dataDir, session)
+    return refreshCursorUsage(dataDir, platform)
+  } catch {
+    return cursorStatusEntry({
+      availability: "login_required",
+      statusDetail: "browser_login_failed",
+      lastRequestedAt: Date.now(),
+    })
+  } finally {
+    try {
+      await browser?.close()
+    } catch { /* noop */ }
+    rmSync(userDataDir, { recursive: true, force: true })
+  }
 }
 
 function deriveAvailability(updatedAt: number | null): ProviderUsageAvailability {
@@ -1744,6 +1892,7 @@ function snapshotToEntry(provider: AgentProvider, snapshot: ChatUsageSnapshot | 
     return {
       provider,
       sessionLimitUsedPercent: null,
+      apiLimitUsedPercent: null,
       rateLimitResetAt: null,
       rateLimitResetLabel: null,
       weeklyLimitUsedPercent: null,
@@ -1766,6 +1915,7 @@ function snapshotToEntry(provider: AgentProvider, snapshot: ChatUsageSnapshot | 
   return {
     provider,
     sessionLimitUsedPercent: snapshot.sessionLimitUsedPercent,
+    apiLimitUsedPercent: null,
     rateLimitResetAt: snapshot.rateLimitResetAt,
     rateLimitResetLabel: (snapshot as ProviderRateLimitSnapshot).rateLimitResetLabel ?? null,
     weeklyLimitUsedPercent: (snapshot as ProviderRateLimitSnapshot).weeklyLimitUsedPercent ?? null,
@@ -1782,6 +1932,7 @@ function unavailableEntry(provider: AgentProvider): ProviderUsageEntry {
   return {
     provider,
     sessionLimitUsedPercent: null,
+    apiLimitUsedPercent: null,
     rateLimitResetAt: null,
     rateLimitResetLabel: null,
     weeklyLimitUsedPercent: null,

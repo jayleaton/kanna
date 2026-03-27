@@ -170,7 +170,7 @@ describe("ws-router", () => {
       machineDisplayName: "Local Machine",
       updateManager: null,
       themeSettings: fakeThemeSettings,
-      providerUsagePollIntervalMs: 10_000,
+      providerUsagePollIntervalMs: 10,
       refreshProviderUsage: async (provider) => {
         refreshedProviders.push(provider)
       },
@@ -196,8 +196,47 @@ describe("ws-router", () => {
     })
   })
 
+  test("default provider usage polling invokes the shared refresh path", async () => {
+    const refreshedProviders: Array<string | undefined> = []
+    const router = createWsRouter({
+      store: {
+        state: createEmptyState(),
+        getChat: () => null,
+        getMessages: () => [],
+      } as never,
+      agent: createFakeAgent() as never,
+      terminals: {
+        getSnapshot: () => null,
+        onEvent: () => () => {},
+      } as never,
+      keybindings: {
+        getSnapshot: () => DEFAULT_KEYBINDINGS_SNAPSHOT,
+        onChange: () => () => {},
+      } as never,
+      git: new GitManager(),
+      refreshDiscovery: async () => [],
+      getDiscoveredProjects: () => [],
+      machineDisplayName: "Local Machine",
+      updateManager: null,
+      themeSettings: fakeThemeSettings,
+      providerUsagePollIntervalMs: 10,
+      refreshProviderUsage: async (provider) => {
+        refreshedProviders.push(provider)
+      },
+    })
+    const ws = new FakeWebSocket()
+    router.handleOpen(ws as never)
+    ws.data.subscriptions.set("sub-sidebar", { type: "sidebar" })
+
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 25))
+      expect(refreshedProviders).toContain(undefined)
+    } finally {
+      router.dispose()
+    }
+  })
+
   test("routes provider usage curl imports", async () => {
-    const originalFetch = globalThis.fetch
     const router = createWsRouter({
       store: {
         state: createEmptyState(),
@@ -224,12 +263,6 @@ describe("ws-router", () => {
     })
     const ws = new FakeWebSocket()
 
-    globalThis.fetch = (async () => new Response(JSON.stringify({
-      usage: {
-        used_percent: 22,
-      },
-    }), { status: 200 })) as unknown as typeof fetch
-
     try {
       router.handleMessage(
         ws as never,
@@ -240,7 +273,7 @@ describe("ws-router", () => {
           command: {
             type: "provider.importUsageCurl",
             provider: "cursor",
-            curlCommand: "curl 'https://cursor.com/api/dashboard/get-current-period-usage' -b 'WorkosCursorSessionToken=session_abc'",
+            curlCommand: "curl 'https://cursor.com/api/dashboard/get-current-period-usage' -H 'accept: */*'",
           },
         })
       )
@@ -250,9 +283,13 @@ describe("ws-router", () => {
         v: PROTOCOL_VERSION,
         type: "ack",
         id: "provider-import-1",
+        result: {
+          availability: "login_required",
+          statusDetail: "invalid_curl_import",
+        },
       })
     } finally {
-      globalThis.fetch = originalFetch
+      router.dispose()
     }
   })
 

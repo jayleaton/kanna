@@ -327,6 +327,7 @@ export type ProviderUsageAvailability = "available" | "unavailable" | "stale" | 
 export interface ProviderUsageEntry {
   provider: AgentProvider
   sessionLimitUsedPercent: number | null
+  apiLimitUsedPercent?: number | null
   rateLimitResetAt: number | null
   rateLimitResetLabel?: string | null
   weeklyLimitUsedPercent?: number | null
@@ -334,6 +335,7 @@ export interface ProviderUsageEntry {
   weeklyRateLimitResetLabel?: string | null
   statusDetail?: string | null
   availability: ProviderUsageAvailability
+  lastRequestedAt?: number | null
   updatedAt: number | null
   warnings: ChatUsageWarning[]
 }

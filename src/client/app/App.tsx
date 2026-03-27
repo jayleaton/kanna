@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from "react"
 import { Navigate, Outlet, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom"
+import { Toaster } from "sonner"
 import { AppDialogProvider } from "../components/ui/app-dialog"
 import { CreateFeatureModal } from "../components/CreateFeatureModal"
 import { CursorCurlImportModal } from "../components/CursorCurlImportModal"
@@ -127,9 +128,7 @@ function KannaLayout() {
         onRemoveProject={(projectId) => {
           void state.handleRemoveProject(projectId)
         }}
-        onRefreshProviderUsage={(provider) => {
-          void state.handleRefreshProviderUsage(provider)
-        }}
+        onRefreshProviderUsage={state.handleRefreshProviderUsage}
         onOpenProviderLogin={(provider) => {
           void state.handleOpenProviderLogin(provider)
         }}
@@ -170,6 +169,7 @@ export function App() {
             <Route path="/chat/:chatId" element={<ChatPage />} />
           </Route>
         </Routes>
+        <Toaster />
       </AppDialogProvider>
     </TooltipProvider>
   )
